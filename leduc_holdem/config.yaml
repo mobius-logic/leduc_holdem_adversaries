@@ -1,0 +1,41 @@
+api:
+  endpoint: https://api.openai.com/v1/messages
+  key_env_var: OPENAI_API_KEY     # Read key from environment only
+  model: gpt-5.4-mini
+
+game:
+  hands_per_tournament: 5
+  starting_chips: 50
+  ante: 1
+  preflop_raise_size: 2
+  preflop_raise_cap: 2
+  postflop_raise_size: 4
+  postflop_raise_cap: 2
+
+training:
+  personalities:
+    - analytical
+    - conservative
+    - aggressive
+    - reckless
+  num_tournaments: 100
+  first_pass_tournaments: 3          # Used for initial smoke test
+  train_split: 0.75
+  n_workers: 4                       # One per personality
+  random_seed_base: 42               # seed = base + tournament_index
+
+observation:
+  vector_length: 19
+  slots_per_hand: 4
+  hands_per_tournament: 5
+  pad_value: -1.0
+  flat_length: 380                   # 20 slots x 19 features
+
+paths:
+  instructions_dir: instructions/
+  data_dir: data/observations/
+  model_dir: data/models/
+  lda_model_filename: best_lda_model.pkl
+
+lda:
+  kfold_splits: 4

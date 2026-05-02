@@ -1,0 +1,564 @@
+COPILOT PROMPT — LEDUC HOLD'EM PERSONALITY CLASSIFICATION SYSTEM
+=================================================================
+
+Read this entire prompt before generating any file or code. All
+specifications are intentional and internally consistent. Do not
+make assumptions or fill gaps with defaults — every parameter is
+explicitly defined below.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. MISSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Build a Leduc Hold'em poker simulation system for command-and-control
+research. The mission is to synthesize information from gameplay into
+a coherent picture and act on it faster than the adversary. Our
+adversaries are LLM agents playing with distinct personality types.
+
+The system:
+  - Pits LLM-driven personality agents against a random player across
+    automated tournaments
+  - Collects structured observations of each agent's decisions
+  - Trains a Linear Discriminant Analysis (LDA) classifier to identify
+    personality types from gameplay behavior alone
+
+The four adversary personalities are:
+  - Analytical
+  - Conservative
+  - Aggressive
+  - Reckless
+
+Each personality is defined by a separate instruction set text file
+loaded from disk at runtime. These files are provided externally and
+must not be hardcoded or summarized in the codebase.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. GAME SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1 DECK
+--------
+6 cards total:
+  - Jack of Hearts (J♥), Queen of Hearts (Q♥), King of Hearts (K♥)
+  - Jack of Spades (J♠), Queen of Spades (Q♠), King of Spades (K♠)
+
+Rank ordering (weakest to strongest): J < Q < K
+Deck is shuffled between every hand using a seeded RNG.
+
+
+2.2 HAND STRUCTURE
+------------------
+Each hand proceeds in this exact order:
+
+  1. Both players ante 1 chip ($1) into the pot
+  2. Each player is dealt 1 private card face-down
+  3. Pre-flop betting round (community card not yet visible)
+  4. Community card revealed face-up
+  5. Post-flop betting round
+  6. Showdown if both players are still active
+
+Betting order alternates each hand. The opponent (random agent) acts
+first in hand 1. The personality agent acts first in hand 2. They
+alternate for all 5 hands. Track acting-first status explicitly in
+game state.
+
+
+2.3 BETTING PARAMETERS
+-----------------------
+  Starting chips per player per tournament : 50 chips ($50)
+  Chip value                               : $1 per chip
+  Ante per hand                            : 1 chip ($1) each player
+  Pre-flop raise size                      : +2 chips ($2)
+  Pre-flop raise cap                       : 2 raises maximum per round
+  Post-flop raise size                     : +4 chips ($4)
+  Post-flop raise cap                      : 2 raises maximum per round
+  Maximum possible loss per hand           : ~13 chips ($13)
+  Hands per tournament                     : 5
+
+
+2.4 LEGAL ACTIONS
+-----------------
+  Check  : No chips added. Only valid when there is no outstanding bet.
+  Call   : Match the outstanding bet amount.
+  Raise  : Increase the bet by the round's fixed raise size, subject
+           to the raise cap. Illegal when cap is reached.
+  Fold   : Forfeit the hand. Opponent wins the pot immediately.
+
+The raise cap applies to the total number of raises in a round across
+both players combined. Once 2 raises have occurred in a round, Raise
+is no longer a legal action for either player.
+
+
+2.5 HAND RESOLUTION
+--------------------
+  - A pair (private card rank matches community card rank) beats any
+    high card hand.
+  - Between two pairs or two high cards, higher rank wins: K > Q > J.
+  - Tie: pot is split evenly. Round down. Remainder stays in pot.
+
+
+2.6 BETTING SEQUENCE
+---------------------
+Within each round the sequence is: bet → raise → re-raise → done.
+Maximum 2 raises per round. After the cap is reached, players may
+only call or fold.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. AGENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.1 PERSONALITY AGENT (LLM-DRIVEN)
+------------------------------------
+API: OpenAI.
+Model: gpt-5.4-mini
+API key: read from environment variable OPENAI_API_KEY. Never
+hardcode keys or paths anywhere in the codebase.
+
+The personality agent's behavior is defined entirely by its instruction
+set text file, loaded from the instructions directory at runtime.
+Use if statements to switch between personality instruction files based
+on the active personality name from config.
+
+Use the following imports for loading and templating instruction sets:
+
+  import json
+  import re
+  from jinja2 import Template
+  from json_repair import json_repair
+
+LLM CALLING PATTERN — CRITICAL:
+  - The LLM is called exactly once per personality agent action.
+  - A fresh prompt is constructed for every single call.
+  - No conversation history is carried between actions, between hands,
+    or between tournaments. Every call is stateless and independent.
+  - The prompt includes the full current game state and the full
+    instruction set text on every call.
+
+PROMPT STRUCTURE (construct this string for every LLM call):
+
+  SYSTEM:
+    You are playing Leduc Hold'em as a [PERSONALITY_NAME] player.
+    Your instruction set follows in full.
+
+    [FULL INSTRUCTION SET TEXT INSERTED HERE — loaded from txt file]
+
+  USER:
+    Current game state:
+      - Round: [pre-flop / post-flop]
+      - You are acting [first / second] this hand
+      - Your private card: [RANK][SUIT] (e.g. K♥)
+      - Community card: [RANK][SUIT] or NOT YET REVEALED (pre-flop)
+      - Your chip stack: $[N]
+      - Opponent chip stack: $[N]
+      - Pot: $[N]
+      - Your win probability: [N.N]%
+      - Last opponent action: [Check / Call / Raise / Fold / None]
+      - Raises so far this round: [N] of 2 maximum
+
+    Respond with exactly one word: Check, Call, Raise, or Fold.
+
+RESPONSE PARSING:
+  - Strip whitespace and capitalise the first letter of the response.
+  - If the response is not one of {Check, Call, Raise, Fold}, default
+    to Check.
+  - Validate the returned action against currently legal actions. If
+    the action is illegal, substitute using this priority order:
+    Raise → Call → Check. Never substitute to Fold automatically.
+
+
+3.2 RANDOM AGENT
+-----------------
+The random agent selects uniformly at random from the set of currently
+legal actions on each turn. All legal actions have equal probability.
+Legal actions are determined by current game state — Raise is excluded
+when the raise cap is reached, Check is excluded when there is an
+outstanding bet. The random agent does not use an LLM and has no
+instruction set.
+
+
+3.3 WIN PROBABILITY CALCULATION
+---------------------------------
+Compute exact win probability for the personality agent before each
+of its actions using card enumeration:
+
+  Pre-flop (community card not yet revealed):
+    - Enumerate all possible opponent private cards (unseen cards)
+    - Enumerate all possible community cards (unseen cards)
+    - For each (opponent card, community card) combination, evaluate
+      who wins using hand resolution rules
+    - Win probability = (wins + 0.5 * ties) / total combinations
+
+  Post-flop (community card visible):
+    - Enumerate all possible opponent private cards (unseen cards)
+    - Community card is fixed and known
+    - Win probability = (wins + 0.5 * ties) / total combinations
+
+  Unseen cards = full deck minus own private card minus community card
+  (if visible).
+
+  Return as a float between 0.0 and 1.0.
+  Display in prompts as a percentage rounded to 1 decimal place.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. OBSERVATION SPECIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.1 OBSERVATION VECTOR
+-----------------------
+Each observation is a 1D numpy array of float32 with exactly 19
+elements. One observation is collected per personality agent action.
+
+  Index   Feature                   Length  Encoding
+  ------  ------------------------  ------  ----------------------------
+  0       Win probability           1       Float 0.0–1.0
+  1       Personality agent stack   1       Float, raw chip count
+  2       Opponent stack            1       Float, raw chip count
+  3       Pot size                  1       Float, raw chip count
+  4–6     Last opponent action      3       One-hot: [Check/Call, Raise,
+                                            Fold]. All zeros if no prior
+                                            opponent action this hand.
+  7–12    Private card              6       One-hot over card order:
+                                            [J♥, Q♥, K♥, J♠, Q♠, K♠]
+  13–18   Community card            6       One-hot over same card order.
+                                            ALL ZEROS pre-flop when
+                                            community card not yet
+                                            revealed.
+
+Total vector length: 19 elements.
+
+
+4.2 PADDING RULE
+-----------------
+Each hand produces exactly 4 observation slots for the personality
+agent: 2 pre-flop action slots and 2 post-flop action slots.
+
+Rule: if the personality agent only acts once in a round, the second
+slot for that round is padded.
+
+Rule: if the hand ends before post-flop (fold during pre-flop), all
+remaining post-flop slots (slots 3 and 4) are padded.
+
+Padding value: an array of 19 float32 values all set to -1.0.
+This value cannot occur naturally in any game observation and is
+unambiguous to the classifier.
+
+Slot assignment per hand:
+  Slot 1: personality agent's 1st pre-flop action  (or -1 pad)
+  Slot 2: personality agent's 2nd pre-flop action  (or -1 pad)
+  Slot 3: personality agent's 1st post-flop action (or -1 pad)
+  Slot 4: personality agent's 2nd post-flop action (or -1 pad)
+
+
+4.3 OBSERVATION COLLECTION TIMING
+-----------------------------------
+Collect the observation immediately before the personality agent
+submits its action — after game state is fully updated for that
+moment but before the action is sent to the game engine. This means
+the observation reflects the state the agent is responding to.
+
+
+4.4 FILE FORMAT
+----------------
+Save one CSV file per tournament.
+Filename format: run_<seed>_<personality>.csv
+
+  - Each file contains exactly 20 rows (5 hands x 4 slots per hand)
+  - Each row has exactly 19 columns (the observation vector)
+  - No header row
+  - All values are float32
+  - Delimiter: comma
+
+Save to the data directory defined in config.
+
+
+4.5 NDARRAY CONSTRUCTION
+--------------------------
+After all 100 tournaments per personality:
+
+  1. Load all 100 CSV files for that personality
+  2. Each file is a 20x19 grid — flatten to a 1D array of length 380
+  3. Stack 100 flattened arrays into NDArray of shape (100, 380)
+  4. Split 75/25: first 75 rows = training, last 25 rows = testing
+  5. Concatenate training sets for all 4 personalities:
+     shape (300, 380)
+  6. Concatenate testing sets for all 4 personalities:
+     shape (100, 380)
+  7. Generate label arrays (integer-encoded):
+     Analytical=0, Conservative=1, Aggressive=2, Reckless=3
+  8. Training labels shape: (300,)
+  9. Testing labels shape: (100,)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. LDA CLASSIFICATION PIPELINE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+5.1 PREPROCESSING
+------------------
+Before fitting LDA, check if PCA is needed. With 380 features and
+300 training samples, LDA may be rank-deficient. Apply PCA:
+  - Fit PCA on training data only
+  - n_components = min(n_samples - 1, n_features)
+  - Transform both training and testing data using the fitted PCA
+  - Use sklearn.decomposition.PCA
+
+
+5.2 LDA PARAMETER SEARCH
+--------------------------
+Search the following parameter combinations. For each, fit and
+evaluate independently:
+
+  solver    shrinkage    Notes
+  --------  -----------  -----------------------------------------
+  svd       None         Default solver, no shrinkage support
+  lsqr      auto         Ledoit-Wolf automatic shrinkage
+  lsqr      0.0          No shrinkage
+  lsqr      0.5          Moderate shrinkage
+  lsqr      1.0          Full shrinkage
+  eigen     auto         Ledoit-Wolf automatic shrinkage
+  eigen     0.5          Moderate shrinkage
+
+
+5.3 EVALUATION PER PARAMETER SET
+----------------------------------
+For each parameter combination:
+
+  1. Fit LDA on training data (300, 380) with training labels (300,)
+  2. Cross-validate using StratifiedKFold with K=4:
+       from sklearn.model_selection import StratifiedKFold, cross_val_score
+       skf = StratifiedKFold(n_splits=4)
+       scores = cross_val_score(lda, X_train, y_train, cv=skf)
+  3. Print mean and std of scores
+  4. Predict on test set (100, 380)
+  5. Compute confusion matrix
+  6. Compute and print percentage of incorrect predictions
+  7. Print all results to CLI clearly labelled by parameter set
+
+
+5.4 MODEL SELECTION AND SAVING
+--------------------------------
+Select the parameter set with the best combination of:
+  - Highest mean cross-validation accuracy
+  - Lowest test set mislabeling percentage
+
+Save the best fitted LDA model (and its PCA transformer) as a
+pickle file to the model directory defined in config.
+Filename: best_lda_model.pkl
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. PARALLELIZATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Parallelize at the personality level only.
+
+Use concurrent.futures.ProcessPoolExecutor with 4 workers — one per
+personality. Each worker runs all 100 tournaments for its personality
+sequentially. Within a single tournament, execution is strictly
+sequential.
+
+Do not parallelize within a tournament or within a hand. LLM API
+rate limits make inner-loop parallelization counterproductive and
+will cause failures.
+
+Seeding:
+  - Each tournament uses seed = config.random_seed_base + tournament_index
+  - Log every seed used to stdout for full reproducibility
+  - Seed the deck shuffle and any other random operations using this seed
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. FOLDER STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scaffold the following structure. Create all stub files with full
+Google-style docstrings and TODO comments. Then implement each
+module fully.
+
+  leduc_holdem/
+    config.yaml                    # All runtime configuration
+    requirements.txt               # All dependencies, pinned versions
+    main.py                        # Entry point and CLI
+
+    game/
+      __init__.py
+      deck.py                      # Card, Deck, shuffle logic
+      state.py                     # GameState dataclass
+      leduc_holdem.py              # Game loop and action resolution
+
+    agents/
+      __init__.py
+      base_agent.py                # Abstract base class for all agents
+      personality_agent.py         # LLM-driven agent (OPENAI API)
+      random_agent.py              # Uniform random over legal actions
+
+    training/
+      __init__.py
+      runner.py                    # Tournament runner, parallelization
+      observer.py                  # Observation collection, padding,
+                                   # CSV saving
+      win_probability.py           # Exact win probability via enumeration
+
+    eval_runs/
+      __init__.py
+      lda_pipeline.py              # PCA, LDA fitting, cross-validation,
+                                   # confusion matrix
+      model_selector.py            # Parameter search, best model saving
+
+    data/                          # Auto-created at runtime, gitignored
+      observations/                # CSV files: run_<seed>_<personality>.csv
+      models/                      # Saved pickle files
+
+    instructions/                  # Personality instruction set txt files
+      analytical.txt
+      conservative.txt
+      aggressive.txt
+      reckless.txt
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. CONFIG FILE (config.yaml)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All runtime parameters live here. Nothing is hardcoded in the
+codebase. Load with PyYAML.
+
+api:
+  endpoint: https://api.openai.com/v1/messages
+  key_env_var: OPENAI_API_KEY     # Read key from environment only
+  model: gpt-5.4-mini
+
+game:
+  hands_per_tournament: 5
+  starting_chips: 50
+  ante: 1
+  preflop_raise_size: 2
+  preflop_raise_cap: 2
+  postflop_raise_size: 4
+  postflop_raise_cap: 2
+
+training:
+  personalities:
+    - analytical
+    - conservative
+    - aggressive
+    - reckless
+  num_tournaments: 100
+  first_pass_tournaments: 3          # Used for initial smoke test
+  train_split: 0.75
+  n_workers: 4                       # One per personality
+  random_seed_base: 42               # seed = base + tournament_index
+
+observation:
+  vector_length: 19
+  slots_per_hand: 4
+  hands_per_tournament: 5
+  pad_value: -1.0
+  flat_length: 380                   # 20 slots x 19 features
+
+paths:
+  instructions_dir: instructions/
+  data_dir: data/observations/
+  model_dir: data/models/
+  lda_model_filename: best_lda_model.pkl
+
+lda:
+  kfold_splits: 4
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. REQUIREMENTS FILE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+requirements.txt must include at minimum:
+
+  openai
+  numpy>=1.26.0
+  pandas>=2.0.0
+  scikit-learn>=1.4.0
+  pyyaml>=6.0
+  jinja2>=3.1.0
+  json-repair>=0.1.0
+  tqdm>=4.66.0
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. IMPLEMENTATION REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+10.1 CODE QUALITY
+------------------
+  - Google-style docstrings on all classes and public methods
+  - Type hints on all function signatures
+  - No hardcoded file paths, API keys, model names, or numeric
+    constants — everything comes from config
+  - All randomness seeded and logged for reproducibility
+  - Modular and parallelizable wherever possible per section 6
+
+10.2 CLI OUTPUT
+----------------
+Print clear, informative messages for all major pipeline steps:
+  - Tournament start/end per personality
+  - Hand start/end within tournament
+  - Each agent action and observation collected
+  - File saved confirmation per tournament
+  - LDA parameter set being evaluated
+  - Cross-validation scores per parameter set
+  - Final confusion matrix and mislabeling percentage
+  - Best model selected and saved
+
+10.3 FIRST PASS MODE
+---------------------
+For initial testing, run only 3 tournaments per personality instead
+of 100. This is controlled by config.training.first_pass_tournaments.
+The main.py CLI should accept a --first-pass flag that substitutes
+this value for num_tournaments. All pipeline steps (observation
+collection, NDArray construction, LDA) must still run correctly
+with only 3 tournaments (12 total observations, shape (12, 380)).
+
+10.4 OBSERVATION STEP
+----------------------
+After each personality agent turn, call an observation step that:
+  1. Constructs the 19-element observation vector from current state
+  2. Assigns it to the correct hand slot (1–4)
+  3. If the agent did not act in that slot, fills with -1.0 padding
+  4. At end of tournament, assembles the 20x19 matrix and saves CSV
+
+10.5 ERROR HANDLING
+--------------------
+  - Wrap all OpenAI API calls in try/except. On failure, log the
+    error and default the action to Check.
+  - Validate observation vector shape (must be exactly (19,)) before
+    saving. Raise ValueError if shape is wrong.
+  - Validate CSV shape (must be exactly (20, 19)) before saving.
+  - Create data directories automatically if they do not exist.
+
+10.6 REPRODUCIBILITY LOGGING
+------------------------------
+  - Log every random seed used with its corresponding tournament index
+    and personality to a seeds.log file in the data directory.
+  - Format: [PERSONALITY] tournament=[N] seed=[N]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. CRITICAL INVARIANTS — DO NOT DEVIATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Observation vector is always exactly 19 elements (float32)
+  2. Each hand always produces exactly 4 observation slots
+  3. Each tournament always produces exactly 20 observation rows
+  4. NDArray per personality is always shape (100, 380)
+  5. Training NDArray is always shape (300, 380)
+  6. Testing NDArray is always shape (100, 380)
+  7. Padding value is always -1.0 — never 0, never NaN, never None
+  8. Community card one-hot is always all zeros pre-flop
+  9. LLM is called once per agent action with no conversation history
+ 10. Random agent is always uniform over legal actions only
+ 11. API is always OpenAI
+ 12. All parameters come from config.yaml — nothing hardcoded
+ 13. Raise cap is 2 per round total across both players combined
+ 14. Betting order alternates per hand starting with opponent first

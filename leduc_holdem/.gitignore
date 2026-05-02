@@ -1,0 +1,8 @@
+# Auto-created runtime data — do not commit.
+data/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
