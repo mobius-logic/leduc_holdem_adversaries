@@ -75,20 +75,15 @@ class RecklessRuleAgent(BaseAgent):
             # Cap reached (opponent raised twice) — call; never fold a Queen.
             return _pick(["Call"], legal)
 
-        # ── JACK — raise as bluff; fold at cap or low prob ───────────
+        # ── JACK — fold to any opponent bet/raise; bluff only if first to act ─
         if not can_raise:
-            # Cap reached — fold.
+            # Cap reached — fold (Jack never worth calling at cap).
             return _pick(["Fold", "Call"], legal)
         if last_opp in (None, "Check"):
-            # Acting first or opponent checked → bluff raise.
+            # Acting first or opponent checked → single bluff raise.
             return "Raise"
-        if last_opp == "Raise":
-            # Opponent raised once → re-raise as bluff if win_prob > 35 %.
-            if win_prob >= _REACT_RAISE_MIN:
-                return "Raise"
-            return _pick(["Fold", "Call"], legal)
-        # Any other state (called): raise.
-        return "Raise"
+        # Opponent raised or bet → fold; Jack is not worth chasing.
+        return _pick(["Fold", "Call"], legal)
 
     # ------------------------------------------------------------------
     # Post-flop
@@ -142,15 +137,12 @@ class RecklessRuleAgent(BaseAgent):
             return _pick(["Fold", "Call"], legal)
 
         # ── JACK HIGH (no pair) ──────────────────────────────────────
-        # Raise once as a bluff; fold to opponent bet.
+        # Fold immediately unless acting first with no prior opponent action.
         if private_rank == "J":
-            if can_raise:
-                if last_opp in (None, "Check"):
-                    # Acting first or opp checked → bluff raise.
-                    return "Raise"
-                # Opponent bet or raised → fold.
-                return _pick(["Fold", "Call"], legal)
-            # Cap reached → fold.
+            if _acting_first(state) and last_opp in (None, "Check") and can_raise:
+                # Single bluff raise when acting first and opponent hasn't bet.
+                return "Raise"
+            # Any other situation: fold (Jack high is a losing hand).
             return _pick(["Fold", "Call"], legal)
 
         # Fallback.

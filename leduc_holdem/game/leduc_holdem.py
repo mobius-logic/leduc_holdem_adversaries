@@ -109,10 +109,10 @@ class LeducHoldemGame:
             if player_idx == PERSONALITY:
                 # Determine slot index (0 or 1 for pre-flop).
                 slot = preflop_personality_actions
-                if obs_callback is not None:
-                    obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
                 state.last_personality_action = action
+                if obs_callback is not None:
+                    obs_callback(state, slot)
                 if personality_action_callback is not None:
                     personality_action_callback(action)
                 preflop_personality_actions += 1
@@ -166,10 +166,10 @@ class LeducHoldemGame:
 
             if player_idx == PERSONALITY:
                 slot = 2 + postflop_personality_actions
-                if obs_callback is not None:
-                    obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
                 state.last_personality_action = action
+                if obs_callback is not None:
+                    obs_callback(state, slot)
                 if personality_action_callback is not None:
                     personality_action_callback(action)
                 postflop_personality_actions += 1

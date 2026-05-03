@@ -62,7 +62,9 @@ def _build_observation_vector(
       [13–18]Community card one-hot over same order.
              ALL ZEROS pre-flop.
       [19–21]Last personality action one-hot [Check/Call, Raise, Fold].
-             All zeros if no prior personality action this hand.
+             Reflects the CURRENT action (callback fires after act()).
+             All zeros on the very first action of the tournament
+             (no action has been taken yet for slot 0 of hand 0).
 
     Args:
         state: Current fully-updated game state.
