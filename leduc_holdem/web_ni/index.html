@@ -176,6 +176,18 @@
 
     #header-new-game-btn:hover { background: rgba(255,255,255,0.15); }
 
+    #reveal-btn {
+      background: rgba(243,156,18,0.18);
+      border: 1px solid rgba(243,156,18,0.5);
+      color: #f0c330;
+      padding: 5px 14px;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: background 0.15s;
+    }
+    #reveal-btn:hover { background: rgba(243,156,18,0.35); }
+
     /* ── Main layout ── */
     #game-area {
       display: none;
@@ -578,7 +590,10 @@
     </div>
     <!-- Rule engine — no thinking spinner needed; responses are instant -->
     <span id="engine-mode-label" style="font-size:0.75rem;color:#a8c898;letter-spacing:0.06em;"></span>
-    <button id="header-new-game-btn" onclick="showSetup()">New Game</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button id="reveal-btn" style="display:none" onclick="revealOpponent()">🔍 Reveal Opponent</button>
+      <button id="header-new-game-btn" onclick="showSetup()">New Game</button>
+    </div>
   </div>
 
   <!-- Table + log -->
@@ -692,6 +707,13 @@ async function nextHand() {
   render(_state);
 }
 
+async function revealOpponent() {
+  const data = await api('/api/reveal', {});
+  if (data.error) { alert(data.error); return; }
+  _state = data;
+  render(_state);
+}
+
 function showSetup() {
   document.getElementById('setup-overlay').style.display = 'flex';
   document.getElementById('game-area').style.display = 'none';
@@ -716,6 +738,10 @@ function render(s) {
     s.round === 'post_flop' ? 'Post-Flop' : 'Pre-Flop';
   document.getElementById('engine-mode-label').textContent =
     s.personality ? `\u2699 ${pName} rule engine` : '\u2699 Rule engine';
+
+  // Show/hide the reveal button (only in random mode before reveal)
+  const revealBtn = document.getElementById('reveal-btn');
+  revealBtn.style.display = (s.is_random && !s.personality) ? 'inline-block' : 'none';
 
   // ── Agent player ──
   const llmLabel = document.getElementById('llm-name-label');

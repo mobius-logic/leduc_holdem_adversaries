@@ -168,6 +168,7 @@ class GameSession:
         self._preflop_actions: int = 0   # agent preflop action count in current hand
         self._postflop_actions: int = 0  # agent postflop action count in current hand
         self._lda_step_probs: list = []  # [{step, analytical, conservative, aggressive, reckless}, ...]
+        self._personality_revealed: bool = False  # set True via /api/reveal in random mode
         self._deal_hand()
 
     # ------------------------------------------------------------------
@@ -371,7 +372,16 @@ class GameSession:
         agg_part = self._observer.to_aggregates()       # (15,)
         feat = np.concatenate([obs_part, agg_part]).astype(np.float32).reshape(1, -1)
         x_pca = pca.transform(feat)
-        probs = lda.predict_proba(x_pca)[0]
+        # Raw LDA decision scores can be O(10^7) for partial/padded inputs,
+        # which causes predict_proba's softmax to saturate to 1.0/0.0.
+        # Z-score the scores first so the distribution is always meaningful.
+        scores = lda.decision_function(x_pca)[0]       # (n_classes,)
+        std = scores.std()
+        if std > 1e-10:
+            scores = (scores - scores.mean()) / std
+        scores -= scores.max()                          # numerical stability
+        exp_s = np.exp(scores)
+        probs = exp_s / exp_s.sum()
         return {
             _LDA_LABEL_TO_NAME.get(int(c), str(c)): round(float(p), 4)
             for c, p in zip(lda.classes_, probs)
@@ -412,7 +422,8 @@ class GameSession:
         agent_stack = s.stacks[_AGENT] if s else self.stacks[_AGENT]
 
         return {
-            "personality": None if self.is_random else self.personality_name,
+            "personality": None if (self.is_random and not self._personality_revealed) else self.personality_name,
+            "is_random": self.is_random,
             "hand_number": self._playing_hand_idx + 1,
             "total_hands": self.hands_per_tournament,
             "round": s.round.name.lower() if s else None,
@@ -442,6 +453,15 @@ class GameSession:
 @app.route("/")
 def index():
     return send_from_directory(_WEB_DIR, "index.html")
+
+
+@app.route("/api/reveal", methods=["POST"])
+def reveal_personality():
+    if _session is None:
+        return jsonify({"error": "No active game."}), 400
+    _session._personality_revealed = True
+    _session._display_name = _session.personality_name.title()
+    return jsonify(_session.to_dict())
 
 
 @app.route("/api/new_game", methods=["POST"])
