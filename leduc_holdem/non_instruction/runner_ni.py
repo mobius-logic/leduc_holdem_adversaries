@@ -330,11 +330,19 @@ def build_train_test_arrays(
 
     label_map = {p: i for i, p in enumerate(personalities)}
 
+    # Fixed shuffle seed so train/test split is random but reproducible.
+    _shuffle_seed = 0
+
     x_trains, x_tests, y_trains, y_tests = [], [], [], []
 
     for personality in personalities:
         arr = personality_arrays[personality]
         n = arr.shape[0]
+
+        # Shuffle rows before splitting to avoid temporal/seed-ordering bias.
+        rng = np.random.default_rng(_shuffle_seed)
+        arr = arr[rng.permutation(n)]
+
         split_idx = int(n * train_split)
 
         x_trains.append(arr[:split_idx])
