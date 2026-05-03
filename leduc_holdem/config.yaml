@@ -38,6 +38,7 @@ paths:
   instructions_dir: instructions/
   data_dir: data/observations/
   model_dir: data/models/
+  tournament_dir: data/tournament/
   lda_model_filename: best_lda_model.pkl
 
 lda:

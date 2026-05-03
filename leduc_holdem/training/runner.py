@@ -25,6 +25,7 @@ from agents.personality_agent import PersonalityAgent
 from agents.random_agent import RandomAgent
 from game.leduc_holdem import LeducHoldemGame
 from training.observer import TournamentObserver, save_tournament_csv
+from training.tournament_logger import TournamentLogger
 from training.win_probability import compute_win_probability
 
 
@@ -60,10 +61,12 @@ def _run_personality_tournaments(
     try:
         seed_base: int = cfg["training"]["random_seed_base"]
         data_dir: str = cfg["paths"]["data_dir"]
+        tournament_dir: str = cfg["paths"]["tournament_dir"]
         hands_per_tournament: int = cfg["game"]["hands_per_tournament"]
 
         seeds_log_path = os.path.join(data_dir, "seeds.log")
         os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(tournament_dir, exist_ok=True)
 
         game = LeducHoldemGame(cfg)
 
@@ -107,13 +110,22 @@ def _run_personality_tournaments(
             def obs_callback(state, slot_index, _obs=observer):
                 _obs.record(state, slot_index)
 
+            tournament_logger = TournamentLogger(
+                personality=personality,
+                seed=seed,
+                tournament_index=t_idx,
+            )
+
             game.play_tournament(
                 seed_base=seed_base,
                 tournament_index=t_idx,
                 personality_agent=personality_agent,
                 random_agent=random_agent,
                 obs_callback=obs_callback,
+                tournament_logger=tournament_logger,
             )
+
+            tournament_logger.save(tournament_dir)
 
             matrix = observer.to_matrix()
             save_tournament_csv(

@@ -204,10 +204,10 @@ IF YOU HAVE QUEEN HIGH (no pair):
   - Opponent has raised: fold. Queen high has its limits even
     for you, but only after they have shown confirmed aggression.
 
-IF YOU HAVE JACK HIGH (no pair):
+IF YOU HAVE JACK (no pair):
   - Acting first: raise as a bluff.
   - Opponent has checked: raise once as a bluff.
-  - Opponent has bet: fold. Jack high bluffs only work when
+  - Opponent has bet: fold. Jack bluffs only work when
     the opponent has shown weakness first.
   - Opponent has raised: fold immediately.
 

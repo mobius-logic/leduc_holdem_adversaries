@@ -147,9 +147,10 @@ def main() -> None:
     else:
         num_tournaments = cfg["training"]["num_tournaments"]
 
-    # Ensure data directory exists (seeds.log needs it).
+    # Ensure data directories exist.
     os.makedirs(cfg["paths"]["data_dir"], exist_ok=True)
     os.makedirs(cfg["paths"]["model_dir"], exist_ok=True)
+    os.makedirs(cfg["paths"]["tournament_dir"], exist_ok=True)
 
     print(
         f"\n[Main] Config loaded from {config_path}\n"

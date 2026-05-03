@@ -51,6 +51,7 @@ class LeducHoldemGame:
         personality_agent,
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
+        action_callback: Optional[Callable[[str, str, str], None]] = None,
     ) -> Tuple[List[int], GameState]:
         """Play one complete hand and return updated stacks plus final state.
 
@@ -117,6 +118,12 @@ class LeducHoldemGame:
                 f"action: {action}"
             )
 
+            if action_callback is not None:
+                action_callback(
+                    "Personality" if player_idx == PERSONALITY else "Opponent",
+                    action,
+                    "preflop",
+                )
             round_ended = self._apply_action(state, action)
             if round_ended or state.hand_over:
                 break
@@ -165,6 +172,12 @@ class LeducHoldemGame:
                 f"action: {action}"
             )
 
+            if action_callback is not None:
+                action_callback(
+                    "Personality" if player_idx == PERSONALITY else "Opponent",
+                    action,
+                    "postflop",
+                )
             round_ended = self._apply_action(state, action)
             if round_ended or state.hand_over:
                 break
@@ -199,6 +212,7 @@ class LeducHoldemGame:
         personality_agent,
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
+        tournament_logger=None,
     ) -> List[GameState]:
         """Play a complete tournament of N hands.
 
@@ -224,6 +238,16 @@ class LeducHoldemGame:
                 f"Stacks: Personality=${stacks[0]}, Opponent=${stacks[1]} | "
                 f"Seed: {hand_seed}"
             )
+
+            if tournament_logger is not None:
+                tournament_logger.start_hand(hand_index, hand_seed, list(stacks))
+
+            action_callback = (
+                tournament_logger.record_action
+                if tournament_logger is not None
+                else None
+            )
+
             updated_stacks, final_state = self.play_hand(
                 hand_index=hand_index,
                 stacks=stacks,
@@ -231,9 +255,13 @@ class LeducHoldemGame:
                 personality_agent=personality_agent,
                 random_agent=random_agent,
                 obs_callback=obs_callback,
+                action_callback=action_callback,
             )
             stacks = updated_stacks
             hand_states.append(final_state)
+
+            if tournament_logger is not None:
+                tournament_logger.end_hand(final_state)
 
         print(
             f"  Tournament {tournament_index} complete. "
