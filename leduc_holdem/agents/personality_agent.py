@@ -1,9 +1,9 @@
 """LLM-driven personality agent for Leduc Hold'em.
 
-Calls the OpenAI API exactly once per action. Every call is stateless —
-no conversation history is retained between actions, hands, or
-tournaments. The full instruction set and game state are injected into
-every prompt.
+Calls the Azure OpenAI Chat Completions API exactly once per action via
+direct HTTP (requests library). Every call is stateless — no conversation
+history is retained between actions, hands, or tournaments. The full
+instruction set and game state are injected into every prompt.
 """
 
 from __future__ import annotations
@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import List, Optional
+import time
+from typing import List
 
+import requests
 from jinja2 import Template
 from json_repair import json_repair
 
@@ -170,16 +172,20 @@ def _validate_action(action: str, legal_actions: List[str]) -> str:
 
 
 class PersonalityAgent(BaseAgent):
-    """LLM-driven agent embodying a specific personality type.
+    """LLM-driven agent calling Azure OpenAI via direct HTTP requests.
 
-    Makes one fresh, stateless OpenAI API call per action. The full
-    instruction set text and game state are included in every prompt.
+    Makes one fresh, stateless HTTP POST per action. The full instruction
+    set text and game state are included in every request. Retries
+    automatically on HTTP 429 rate-limit responses.
 
     Attributes:
         personality: Lowercase personality name string.
-        cfg: Full parsed config dictionary.
+        _url: Fully constructed Azure OpenAI deployment URL.
+        _headers: HTTP headers including the API key.
+        _max_retries: Maximum retry attempts on rate-limit errors.
+        _retry_delay: Seconds to wait between retries (overridden by
+            Retry-After header if present).
         _instruction_text: Cached instruction file content.
-        _client: Initialised OpenAI client.
     """
 
     def __init__(self, personality: str, cfg: dict, win_prob_fn) -> None:
@@ -193,7 +199,7 @@ class PersonalityAgent(BaseAgent):
                 exact win probability for the personality agent.
 
         Raises:
-            EnvironmentError: If the OpenAI API key env var is not set.
+            EnvironmentError: If the API key env var is not set.
             FileNotFoundError: If the instruction file is not found.
         """
         self.personality = personality
@@ -203,16 +209,26 @@ class PersonalityAgent(BaseAgent):
         api_cfg = cfg["api"]
         instructions_dir = cfg["paths"]["instructions_dir"]
 
-        key = os.environ.get(api_cfg["key_env_var"])
+        key = api_cfg.get("_resolved_key") or os.environ.get(api_cfg["key_env_var"])
         if not key:
             raise EnvironmentError(
-                f"OpenAI API key not found. "
+                f"Azure OpenAI API key not found. "
                 f"Set the {api_cfg['key_env_var']} environment variable."
             )
 
-        from openai import OpenAI  # Imported here to keep module-level imports clean.
-        self._client = OpenAI(api_key=key)
-        self._model = api_cfg["model"]
+        endpoint = api_cfg["endpoint"].rstrip("/")
+        deployment = api_cfg["deployment"]
+        api_version = api_cfg["api_version"]
+        self._url = (
+            f"{endpoint}/openai/deployments/{deployment}"
+            f"/chat/completions?api-version={api_version}"
+        )
+        self._headers = {
+            "Content-Type": "application/json",
+            "api-key": key,
+        }
+        self._max_retries: int = api_cfg.get("max_retries", 5)
+        self._retry_delay: int = api_cfg.get("retry_delay", 10)
 
         self._instruction_text = _load_instruction_file(
             instructions_dir, personality
@@ -245,28 +261,61 @@ class PersonalityAgent(BaseAgent):
         return action
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
-        """Make a single stateless API call to OpenAI.
+        """POST to Azure OpenAI Chat Completions with retry on rate limits.
+
+        Constructs the URL from config at init time. Retries up to
+        ``max_retries`` times on HTTP 429, honouring the Retry-After
+        header when present.
 
         Args:
             system_prompt: System-role message content.
             user_prompt: User-role message content.
 
         Returns:
-            Raw text content of the first response choice.
-            Returns 'Check' on any API failure.
+            Raw content string from the first choice.
+            Returns 'Check' on any unrecoverable error.
         """
-        try:
-            response = self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            return response.choices[0].message.content or ""
-        except Exception as exc:  # pylint: disable=broad-except
-            print(
-                f"    [PersonalityAgent:{self.personality}] "
-                f"OpenAI API error: {exc}. Defaulting to Check."
-            )
-            return "Check"
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        }
+
+        for attempt in range(1, self._max_retries + 1):
+            try:
+                response = requests.post(
+                    self._url,
+                    headers=self._headers,
+                    json=payload,
+                    timeout=60,
+                )
+
+                if response.status_code == 429:
+                    retry_after = int(
+                        response.headers.get("Retry-After", self._retry_delay)
+                    )
+                    print(
+                        f"    [PersonalityAgent:{self.personality}] "
+                        f"Rate limit (attempt {attempt}/{self._max_retries}). "
+                        f"Waiting {retry_after}s ..."
+                    )
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"] or ""
+
+            except Exception as exc:  # pylint: disable=broad-except
+                print(
+                    f"    [PersonalityAgent:{self.personality}] "
+                    f"API error (attempt {attempt}/{self._max_retries}): {exc}. "
+                    "Defaulting to Check."
+                )
+                return "Check"
+
+        print(
+            f"    [PersonalityAgent:{self.personality}] "
+            f"Failed after {self._max_retries} attempts. Defaulting to Check."
+        )
+        return "Check"

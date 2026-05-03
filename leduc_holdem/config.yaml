@@ -1,7 +1,10 @@
 api:
-  endpoint: https://api.openai.com/v1/messages
-  key_env_var: OPENAI_API_KEY     # Read key from environment only
-  model: gpt-5.4-mini
+  endpoint: "https://aoai-army.openai.azure.us/"
+  key_env_var: AZURE_OPENAI_API_KEY   # Read key from environment only
+  deployment: "gpt-5.1"
+  api_version: "2024-10-21"
+  max_retries: 5
+  retry_delay: 10                      # seconds between retries on 429
 
 game:
   hands_per_tournament: 5
@@ -19,7 +22,7 @@ training:
     - aggressive
     - reckless
   num_tournaments: 100
-  first_pass_tournaments: 3          # Used for initial smoke test
+  first_pass_tournaments: 5          # Used for initial smoke test
   train_split: 0.75
   n_workers: 4                       # One per personality
   random_seed_base: 42               # seed = base + tournament_index
@@ -38,4 +41,4 @@ paths:
   lda_model_filename: best_lda_model.pkl
 
 lda:
-  kfold_splits: 4
+  kfold_splits: 5

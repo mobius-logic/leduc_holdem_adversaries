@@ -12,6 +12,7 @@ Every seed is logged to both stdout and a ``seeds.log`` file.
 from __future__ import annotations
 
 import concurrent.futures
+import io
 import os
 import random
 import sys
@@ -31,95 +32,115 @@ def _run_personality_tournaments(
     personality: str,
     num_tournaments: int,
     cfg: dict,
-) -> None:
+) -> str:
     """Run all tournaments for a single personality (one worker body).
 
-    This function is designed to run inside a separate process spawned
-    by ProcessPoolExecutor. It creates its own game, agent instances,
-    and observer, and writes CSV files directly to disk.
+    All print output is buffered internally and returned as a single
+    string, so the parent process can print each personality's full log
+    in one uninterlepted block once the worker finishes.
 
     Args:
         personality: Lowercase personality name.
         num_tournaments: Number of tournaments to run for this personality.
         cfg: Full parsed config dictionary.
+
+    Returns:
+        Full buffered log string for this personality.
     """
     # Re-import inside the worker process (needed for multiprocessing).
-    import sys
+    import io
     import os
+    import sys
 
-    seed_base: int = cfg["training"]["random_seed_base"]
-    data_dir: str = cfg["paths"]["data_dir"]
-    hands_per_tournament: int = cfg["game"]["hands_per_tournament"]
+    # Redirect stdout to a buffer for the lifetime of this worker.
+    _buffer = io.StringIO()
+    _real_stdout = sys.stdout
+    sys.stdout = _buffer
 
-    seeds_log_path = os.path.join(data_dir, "seeds.log")
-    os.makedirs(data_dir, exist_ok=True)
+    try:
+        seed_base: int = cfg["training"]["random_seed_base"]
+        data_dir: str = cfg["paths"]["data_dir"]
+        hands_per_tournament: int = cfg["game"]["hands_per_tournament"]
 
-    game = LeducHoldemGame(cfg)
+        seeds_log_path = os.path.join(data_dir, "seeds.log")
+        os.makedirs(data_dir, exist_ok=True)
 
-    # Win probability function bound to compute_win_probability.
-    def win_prob_fn(state):
-        return compute_win_probability(state)
+        game = LeducHoldemGame(cfg)
 
-    personality_agent = PersonalityAgent(
-        personality=personality,
-        cfg=cfg,
-        win_prob_fn=win_prob_fn,
-    )
+        # Win probability function bound to compute_win_probability.
+        def win_prob_fn(state):
+            return compute_win_probability(state)
 
-    print(
-        f"\n{'=' * 60}\n"
-        f"[{personality.upper()}] Starting {num_tournaments} tournaments\n"
-        f"{'=' * 60}"
-    )
-
-    for t_idx in range(num_tournaments):
-        seed = seed_base + t_idx
-
-        # Log the seed.
-        log_line = f"[{personality.upper()}] tournament={t_idx} seed={seed}"
-        print(log_line)
-        with open(seeds_log_path, "a", encoding="utf-8") as log_fh:
-            log_fh.write(log_line + "\n")
+        personality_agent = PersonalityAgent(
+            personality=personality,
+            cfg=cfg,
+            win_prob_fn=win_prob_fn,
+        )
 
         print(
-            f"\n[{personality.upper()}] Tournament {t_idx + 1}/{num_tournaments} "
-            f"(seed={seed})"
+            f"\n{'=' * 60}\n"
+            f"[{personality.upper()}] Starting {num_tournaments} tournaments\n"
+            f"{'=' * 60}"
         )
 
-        # Create the random agent with a seeded RNG derived from the tournament seed.
-        rng = random.Random(seed)
-        random_agent = RandomAgent(rng=rng)
+        for t_idx in range(num_tournaments):
+            seed = seed_base + t_idx
 
-        observer = TournamentObserver(hands_per_tournament=hands_per_tournament)
-        observer.set_win_prob_fn(win_prob_fn)
+            # Log the seed.
+            log_line = f"[{personality.upper()}] tournament={t_idx} seed={seed}"
+            print(log_line)
+            with open(seeds_log_path, "a", encoding="utf-8") as log_fh:
+                log_fh.write(log_line + "\n")
 
-        def obs_callback(state, slot_index, _obs=observer):
-            _obs.record(state, slot_index)
+            print(
+                f"\n[{personality.upper()}] Tournament {t_idx + 1}/{num_tournaments} "
+                f"(seed={seed})"
+            )
 
-        game.play_tournament(
-            seed_base=seed_base,
-            tournament_index=t_idx,
-            personality_agent=personality_agent,
-            random_agent=random_agent,
-            obs_callback=obs_callback,
+            # Create the random agent with a seeded RNG derived from the tournament seed.
+            rng = random.Random(seed)
+            random_agent = RandomAgent(rng=rng)
+
+            observer = TournamentObserver(hands_per_tournament=hands_per_tournament)
+            observer.set_win_prob_fn(win_prob_fn)
+
+            def obs_callback(state, slot_index, _obs=observer):
+                _obs.record(state, slot_index)
+
+            game.play_tournament(
+                seed_base=seed_base,
+                tournament_index=t_idx,
+                personality_agent=personality_agent,
+                random_agent=random_agent,
+                obs_callback=obs_callback,
+            )
+
+            matrix = observer.to_matrix()
+            save_tournament_csv(
+                matrix=matrix,
+                data_dir=data_dir,
+                seed=seed,
+                personality=personality,
+            )
+
+        print(
+            f"\n[{personality.upper()}] Completed {num_tournaments} tournaments. "
+            "All CSVs saved."
         )
 
-        matrix = observer.to_matrix()
-        save_tournament_csv(
-            matrix=matrix,
-            data_dir=data_dir,
-            seed=seed,
-            personality=personality,
-        )
+    finally:
+        sys.stdout = _real_stdout
 
-    print(
-        f"\n[{personality.upper()}] Completed {num_tournaments} tournaments. "
-        "All CSVs saved."
-    )
+    return _buffer.getvalue()
 
 
 def run_all_personalities(cfg: dict, num_tournaments: int) -> None:
     """Run tournaments for all personalities in parallel (4 workers).
+
+    Reads the API key from the environment once in the parent process and
+    embeds it into the config dict before passing it to worker processes.
+    This ensures child processes (which may not inherit env vars on Windows)
+    always have the key available.
 
     Args:
         cfg: Full parsed config dict.
@@ -127,6 +148,17 @@ def run_all_personalities(cfg: dict, num_tournaments: int) -> None:
     """
     personalities: List[str] = cfg["training"]["personalities"]
     n_workers: int = cfg["training"]["n_workers"]
+
+    # Resolve the API key here in the parent and inject it so workers
+    # never need to read environment variables themselves.
+    key_env_var = cfg["api"]["key_env_var"]
+    api_key = os.environ.get(key_env_var)
+    if not api_key:
+        raise EnvironmentError(
+            f"Azure OpenAI API key not found. "
+            f"Set the {key_env_var} environment variable before running."
+        )
+    cfg["api"]["_resolved_key"] = api_key
 
     print(
         f"\n[Runner] Launching {len(personalities)} personalities × "
@@ -143,7 +175,14 @@ def run_all_personalities(cfg: dict, num_tournaments: int) -> None:
         for future in concurrent.futures.as_completed(futures):
             personality = futures[future]
             try:
-                future.result()
+                log_output = future.result()
+                # Print the full buffered game log in one uninterrupted block.
+                print(
+                    f"\n{'#' * 60}\n"
+                    f"GAME LOG: {personality.upper()}\n"
+                    f"{'#' * 60}"
+                )
+                print(log_output, end="")
                 print(
                     f"[Runner] Personality '{personality}' finished successfully."
                 )
