@@ -52,6 +52,7 @@ class LeducHoldemGame:
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
         action_callback: Optional[Callable[[str, str, str], None]] = None,
+        personality_action_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[List[int], GameState]:
         """Play one complete hand and return updated stacks plus final state.
 
@@ -65,6 +66,9 @@ class LeducHoldemGame:
             obs_callback: Optional callable fired immediately before
                 each personality agent action. Receives (state,
                 preflop_action_count, postflop_action_count).
+            personality_action_callback: Optional callable fired
+                immediately after each personality action with the
+                action string. Used for aggregate feature tracking.
 
         Returns:
             Tuple of (updated_stacks, final_game_state).
@@ -109,6 +113,8 @@ class LeducHoldemGame:
                     obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
                 state.last_personality_action = action
+                if personality_action_callback is not None:
+                    personality_action_callback(action)
                 preflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
@@ -164,6 +170,8 @@ class LeducHoldemGame:
                     obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
                 state.last_personality_action = action
+                if personality_action_callback is not None:
+                    personality_action_callback(action)
                 postflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
@@ -215,6 +223,7 @@ class LeducHoldemGame:
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
         tournament_logger=None,
+        personality_action_callback: Optional[Callable[[str], None]] = None,
     ) -> List[GameState]:
         """Play a complete tournament of N hands.
 
@@ -258,6 +267,7 @@ class LeducHoldemGame:
                 random_agent=random_agent,
                 obs_callback=obs_callback,
                 action_callback=action_callback,
+                personality_action_callback=personality_action_callback,
             )
             stacks = updated_stacks
             hand_states.append(final_state)

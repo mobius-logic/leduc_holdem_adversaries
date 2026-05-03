@@ -31,7 +31,7 @@ import io
 import os
 import random
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -55,7 +55,8 @@ from reckless_rule_agent     import RecklessRuleAgent      # noqa: E402
 
 from agents.random_agent import RandomAgent                # noqa: E402
 from game.leduc_holdem   import LeducHoldemGame            # noqa: E402
-from training.observer   import TournamentObserver, save_tournament_csv  # noqa: E402
+from game.state          import PERSONALITY                # noqa: E402
+from training.observer   import TournamentObserver, save_tournament_csv, save_tournament_agg_csv  # noqa: E402
 from training.tournament_logger import TournamentLogger    # noqa: E402
 from training.win_probability   import compute_win_probability  # noqa: E402
 
@@ -155,6 +156,7 @@ def _run_personality_tournaments(
 
             observer = TournamentObserver(hands_per_tournament=hands_per_tournament)
             observer.set_win_prob_fn(win_prob_fn)
+            observer.set_starting_chips(cfg["game"]["starting_chips"])
 
             def obs_callback(state, slot_index, _obs=observer):
                 _obs.record(state, slot_index)
@@ -165,20 +167,40 @@ def _run_personality_tournaments(
                 tournament_index=t_idx,
             )
 
-            game.play_tournament(
+            hand_states = game.play_tournament(
                 seed_base=seed_base,
                 tournament_index=t_idx,
                 personality_agent=personality_agent,
                 random_agent=random_agent,
                 obs_callback=obs_callback,
                 tournament_logger=tournament_logger,
+                personality_action_callback=observer.record_personality_action,
             )
+
+            # Record hand outcomes and final stack for aggregate features.
+            for hs in hand_states:
+                if hs.winner == PERSONALITY:
+                    won: Optional[bool] = True
+                elif hs.winner is None:
+                    won = None
+                else:
+                    won = False
+                observer.record_hand_result(won)
+            if hand_states:
+                observer.set_final_stack(hand_states[-1].stacks[PERSONALITY])
 
             tournament_logger.save(tournament_dir)
 
             matrix = observer.to_matrix()
             save_tournament_csv(
                 matrix=matrix,
+                data_dir=data_dir,
+                seed=seed,
+                personality=personality,
+            )
+            agg = observer.to_aggregates()
+            save_tournament_agg_csv(
+                agg=agg,
                 data_dir=data_dir,
                 seed=seed,
                 personality=personality,
@@ -251,15 +273,16 @@ def load_personality_ndarrays(
 ) -> Dict[str, npt.NDArray[np.float32]]:
     """Load all CSV files for each personality and stack into NDArrays.
 
-    Each CSV is a 20×19 matrix (flattened to length 380). Stacking N
-    tournaments yields shape (N, 380).
+    Each tournament contributes a flat vector of length ``flat_length``
+    (440 observation features + 5 aggregate features = 445). Stacking N
+    tournaments yields shape (N, flat_length).
 
     Args:
         cfg: Full parsed config dict.
         num_tournaments: Expected number of tournament CSVs per personality.
 
     Returns:
-        Dict mapping personality name → NDArray of shape (N, 380).
+        Dict mapping personality name → NDArray of shape (N, flat_length).
     """
     personalities: List[str] = cfg["training"]["personalities"]
     data_dir: str = cfg["paths"]["data_dir"]
@@ -274,7 +297,9 @@ def load_personality_ndarrays(
             filename = f"run_{seed}_{personality}.csv"
             filepath = os.path.join(data_dir, filename)
             mat = np.loadtxt(filepath, delimiter=",", dtype=np.float32)
-            rows.append(mat.flatten())
+            agg_path = os.path.join(data_dir, f"run_{seed}_{personality}_agg.csv")
+            agg = np.loadtxt(agg_path, delimiter=",", dtype=np.float32).flatten()
+            rows.append(np.concatenate([mat.flatten(), agg]))
 
         stacked = np.stack(rows, axis=0)  # (N, 380)
         assert stacked.shape == (num_tournaments, flat_length), (

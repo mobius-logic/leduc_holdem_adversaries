@@ -109,9 +109,26 @@ Unused slots are padded with `-1.0`. Each tournament produces a **20 × 22** CSV
 
 ---
 
+## Tournament-Level Aggregate Features (5 features)
+
+Appended to the flattened observation matrix to give LDA a richer, personality-discriminating signal:
+
+| Index | Feature | Description |
+|---|---|---|
+| 440 | `raise_rate` | Fraction of personality actions that were Raise |
+| 441 | `call_check_rate` | Fraction that were Call or Check |
+| 442 | `fold_rate` | Fraction that were Fold |
+| 443 | `net_winnings_norm` | `(final_stack − starting_chips) / starting_chips` |
+| 444 | `hand_win_rate` | Weighted hand wins / total hands (tie = 0.5) |
+
+Saved as a companion `run_{seed}_{personality}_agg.csv` alongside each observation CSV.
+Loaded and concatenated at evaluation time: **440 obs + 5 agg = 445 total features** per tournament.
+
+---
+
 ## LDA Pipeline
 
-1. Load N CSVs per personality → stack to **(N, 440)** NDArray
+1. Load N CSVs per personality → stack to **(N, 445)** NDArray (440 obs + 5 agg)
 2. 75/25 train/test split per personality
 3. Concatenate → **X_train**, **X_test**
 4. PCA: `n_components = min(n_samples - 1, n_features)`
