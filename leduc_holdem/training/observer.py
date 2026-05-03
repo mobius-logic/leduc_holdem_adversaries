@@ -302,7 +302,8 @@ def save_tournament_csv(
     """Save the 20×19 observation matrix to a CSV file.
 
     Args:
-        matrix: float32 ndarray of shape (20, 19).
+        matrix: float32 ndarray of shape (hands*4, 22) — rows depend on
+            hands_per_tournament.
         data_dir: Directory path where the CSV should be saved.
         seed: Tournament seed used in filename.
         personality: Personality name used in filename.
@@ -311,14 +312,11 @@ def save_tournament_csv(
         Absolute path to the saved file.
 
     Raises:
-        ValueError: If ``matrix`` does not have shape (20, 19).
+        ValueError: If ``matrix`` does not have the expected number of columns.
     """
-    expected_rows = 20
-    expected_cols = _VECTOR_LENGTH
-    if matrix.shape != (expected_rows, expected_cols):
+    if matrix.shape[1] != _VECTOR_LENGTH:
         raise ValueError(
-            f"CSV matrix shape {matrix.shape} != "
-            f"({expected_rows}, {expected_cols})"
+            f"CSV matrix has {matrix.shape[1]} columns, expected {_VECTOR_LENGTH}"
         )
 
     os.makedirs(data_dir, exist_ok=True)

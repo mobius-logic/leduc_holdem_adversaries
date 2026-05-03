@@ -7,7 +7,7 @@ api:
   retry_delay: 10                      # seconds between retries on 429
 
 game:
-  hands_per_tournament: 5
+  hands_per_tournament: 15
   starting_chips: 25
   ante: 1
   preflop_raise_size: 2
@@ -30,9 +30,9 @@ training:
 observation:
   vector_length: 22
   slots_per_hand: 4
-  hands_per_tournament: 5
+  hands_per_tournament: 15
   pad_value: -1.0
-  flat_length: 445                   # 20 slots x 22 features + 5 aggregate features
+  flat_length: 1325                  # 15 hands x 4 slots x 22 features + 5 aggregate features
   agg_length: 5                      # raise_rate, call_check_rate, fold_rate, net_winnings_norm, hand_win_rate
 
 paths:

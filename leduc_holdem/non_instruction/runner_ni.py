@@ -274,7 +274,7 @@ def load_personality_ndarrays(
     """Load all CSV files for each personality and stack into NDArrays.
 
     Each tournament contributes a flat vector of length ``flat_length``
-    (440 observation features + 5 aggregate features = 445). Stacking N
+    (hands*4*22 observation features + 5 aggregate features). Stacking N
     tournaments yields shape (N, flat_length).
 
     Args:
