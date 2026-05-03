@@ -115,7 +115,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # Set your OpenAI API key
-$env:AZURE_OPENAI_API_KEY = "G0BEdf6ZamZzQeS8e41bB188jinNBtOhAIXbxVhxwoZMnmBmGgELJQQJ99CEAJhseKSIUj3iAAABACOGcP1u"   # Windows PowerShell
+$env:AZURE_OPENAI_API_KEY = "..."   # Windows PowerShell
 # export OPENAI_API_KEY=sk-...   # macOS/Linux
 ```
 
