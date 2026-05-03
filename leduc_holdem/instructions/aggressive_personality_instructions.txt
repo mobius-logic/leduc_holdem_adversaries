@@ -78,7 +78,7 @@ IF YOU HAVE KING HIGH (no pair):
     exceeds 40%. Fold below 40%.
   - Opponent has raised twice (cap): call if above 35% after bonus.
 
-IF YOU HAVE QUEEN HIGH (no pair):
+IF YOU HAVE QUEEN (no pair):
   - Acting first: bet as a bluff.
   - Opponent has checked: bet as a bluff.
   - Opponent has bet once: call. Do not raise without more confidence.
