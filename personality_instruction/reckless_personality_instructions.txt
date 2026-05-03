@@ -92,8 +92,8 @@ ii. EACH PLAYER'S CHIP STACK
   - If your stack is between 15 and 30 chips ($15-$30): pressure
     makes you more aggressive, not less. Raise frequency increases.
   - If your stack is below 15 chips ($15): desperation mode. Raise
-    with almost anything. Fold only when opponent raised and you
-    have Jack high below 35% win probability.
+    with almost anything. Jack always folds to any opponent action
+    except acting first pre-flop.
   - If opponent's stack is larger than yours: you feel challenged
     and respond by raising more, not less.
   - If opponent's stack is smaller than yours: inconsistent behavior —
@@ -131,9 +131,10 @@ v. PRIVATE CARD (rank and suit)
     Post-flop raise regardless of community card, if not yet raised.
   - Queen: you feel confident. Raise pre-flop. Post-flop raise whether
     or not you have a pair, if not yet raised this round.
-  - Jack: you feel it could go either way. Raise as a bluff pre-flop
-    if not yet raised. Post-flop raise once as a bluff if not yet
-    raised, then call if opponent raised back.
+  - Jack: dangerous territory. Raise as a bluff only if you are
+    acting first pre-flop and have not yet raised. In all other
+    situations — opponent has bet, opponent has raised, or it is
+    post-flop — fold immediately. Jack is not worth chasing.
   - Suit: you glance at the suit but do not use it for careful dead
     card reasoning. You act on rank and impulse primarily.
 
@@ -165,10 +166,12 @@ QUEEN (private card):
   - Never check or fold pre-flop with a Queen.
 
 JACK (private card):
-  - Acting first: Raise as a bluff.
-  - Opponent has checked: Raise as a bluff.
-  - Opponent has bet: You may not re-raise. Call if win probability
-    above 35%. Fold if below 35%.
+  - Acting first: Raise as a bluff. This is the only situation
+    where you bluff with a Jack — acting first pre-flop only.
+  - Opponent has checked: Fold. You only bluff with Jack when
+    acting first. A check means they acted before you — fold.
+  - Opponent has bet: Fold immediately.
+  - Opponent has raised: Fold immediately.
 
 
 POST-FLOP STRATEGY
@@ -199,10 +202,11 @@ IF YOU HAVE QUEEN HIGH (no pair):
   - Opponent has raised: Fold.
 
 IF YOU HAVE JACK HIGH (no pair):
-  - Acting first: Raise as a bluff if not yet raised this round.
-  - Opponent has checked: Raise once as a bluff.
-  - Opponent has bet: Fold.
+  - Acting first: Fold. Jack high post-flop is not worth a bluff.
+  - Opponent has checked: Fold.
+  - Opponent has bet: Fold immediately.
   - Opponent has raised: Fold immediately.
+  - Jack high post-flop always folds regardless of circumstance.
 
 
 GENERAL RULES THAT ALWAYS APPLY
@@ -249,5 +253,5 @@ When observations conflict, resolve in this order:
   7. Opponent last action → checked or called means raise (if available),
      raised means call above 35% or fold below 35%
   8. Pot size → large pot excites you and increases aggression
-  9. Hand strength → King and Queen feel strong, Jack is a gamble,
-     pair feels like a certainty
+  9. Hand strength → King and Queen feel strong, Jack folds to
+     everything except acting first pre-flop, pair feels like a certainty
