@@ -141,9 +141,11 @@ class GameSession:
     The rule agent occupies player-index 0 (_AGENT).
     """
 
-    def __init__(self, personality: str = "aggressive") -> None:
+    def __init__(self, personality: str = "aggressive", is_random: bool = False) -> None:
         gcfg = _CFG["game"]
         self.personality_name = personality
+        self.is_random = is_random
+        self._display_name: str = "Opponent" if is_random else personality.title()
         self._game  = LeducHoldemGame(_CFG)
         self._agent = _make_agent(personality)
 
@@ -208,7 +210,7 @@ class GameSession:
         self._preflop_actions = 0
         self._postflop_actions = 0
 
-        pname = self.personality_name.title()
+        pname = self._display_name
         first_label = f"{pname} acts first" if agent_acts_first else "You act first"
         self.log.append(
             f"── Hand {self._playing_hand_idx + 1} / {self.hands_per_tournament} ──  "
@@ -227,7 +229,7 @@ class GameSession:
         ):
             legal  = self.state.get_legal_actions()
             action = self._agent.act(self.state, legal)
-            self.log.append(f"{self.personality_name.title()}: {action}")
+            self.log.append(f"{self._display_name}: {action}")
             # Record observation before applying action (mirrors training callback order).
             self.state.last_personality_action = action
             if self.state.round == Round.PRE_FLOP:
@@ -286,7 +288,7 @@ class GameSession:
             if self.state.community_card
             else ""
         )
-        pname = self.personality_name.title()
+        pname = self._display_name
         if self.state.winner is None:
             self.log.append("Tie! Pot split.")
         elif self.state.winner == _AGENT:
@@ -410,7 +412,7 @@ class GameSession:
         agent_stack = s.stacks[_AGENT] if s else self.stacks[_AGENT]
 
         return {
-            "personality": self.personality_name,   # always revealed (rule agent)
+            "personality": None if self.is_random else self.personality_name,
             "hand_number": self._playing_hand_idx + 1,
             "total_hands": self.hands_per_tournament,
             "round": s.round.name.lower() if s else None,
@@ -451,7 +453,8 @@ def new_game():
         personality = random.choice(sorted(_VALID_PERSONALITIES))
     if personality not in _VALID_PERSONALITIES:
         return jsonify({"error": f"Unknown personality: {personality!r}"}), 400
-    _session = GameSession(personality=personality)
+    is_random = not bool(body.get("personality", "").lower().strip())
+    _session = GameSession(personality=personality, is_random=is_random)
     return jsonify(_session.to_dict())
 
 
