@@ -60,20 +60,37 @@ def run_data_collection(cfg: dict, num_tournaments: int) -> None:
     run_all_personalities(cfg=cfg, num_tournaments=num_tournaments)
 
 
-def run_lda_evaluation(cfg: dict, num_tournaments: int) -> None:
-    """Load collected CSVs, build arrays, fit LDA, and save best model."""
+def run_lda_evaluation(
+    cfg: dict, num_tournaments: int, first_pass_mode: bool = False
+) -> None:
+    """Load collected CSVs, build arrays, fit LDA, and save best model.
+
+    Args:
+        cfg: Full parsed config dict.
+        num_tournaments: Number of tournaments that were collected.
+        first_pass_mode: When True, uses 3-fold CV (appropriate for the
+            small dataset produced by --first-pass). When False, uses the
+            kfold_splits value from config (typically 5).
+    """
     from eval_runs.lda_pipeline import run_lda_pipeline
     from eval_runs.model_selector import save_best_model, select_best_model
     from non_instruction.runner_ni import build_train_test_arrays, load_personality_ndarrays
 
-    print(f"\n{'#' * 60}\nLDA EVALUATION PIPELINE\n{'#' * 60}")
+    # 3-fold for first-pass (small dataset), config value for full runs.
+    kfold_override = 3 if first_pass_mode else None
+    fold_label = f"3-fold CV (first-pass mode)" if first_pass_mode else f"{cfg['lda']['kfold_splits']}-fold CV"
+
+    print(f"\n{'#' * 60}\nLDA EVALUATION PIPELINE  [{fold_label}]\n{'#' * 60}")
 
     personality_arrays = load_personality_ndarrays(cfg, num_tournaments)
     X_train, X_test, y_train, y_test = build_train_test_arrays(
         personality_arrays, cfg
     )
 
-    pca, results = run_lda_pipeline(X_train, X_test, y_train, y_test, cfg)
+    pca, results = run_lda_pipeline(
+        X_train, X_test, y_train, y_test, cfg,
+        kfold_splits_override=kfold_override,
+    )
 
     print(f"\n{'=' * 60}\nSUMMARY OF ALL PARAMETER SETS\n{'=' * 60}")
     for r in results:
@@ -147,7 +164,7 @@ def main() -> None:
     if not args.eval_only:
         run_data_collection(cfg, num_tournaments)
 
-    run_lda_evaluation(cfg, num_tournaments)
+    run_lda_evaluation(cfg, num_tournaments, first_pass_mode=args.first_pass)
 
     print("\n[Main-NI] Pipeline complete.")
 

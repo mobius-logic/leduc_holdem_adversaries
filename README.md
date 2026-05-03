@@ -118,9 +118,10 @@ Unused slots are padded with `-1.0`. Each tournament produces a **20 × 19** CSV
 6. Select best by highest CV accuracy + lowest test mislabeling %
 7. Save PCA + LDA to `data/models/best_lda_model.pkl`
 
-> CV fold count is automatically capped to the smallest class size, so the
-> pipeline works correctly for any `num_tournaments` value including small
-> smoke-test runs.
+**CV fold behaviour:**
+- `--first-pass`: uses **3-fold CV** (matches the ~3 training samples per class at 5 tournaments × 0.75 split)
+- Full run: uses **`lda.kfold_splits`** from `config.yaml` (default: **5**)
+- Defensive cap: fold count is always clamped to the smallest class size with a logged warning, preventing `StratifiedKFold` failures regardless of dataset size
 
 ---
 
@@ -141,11 +142,12 @@ No API key is required. All agents are pure Python rule engines.
 
 ---
 
-## Step 1 — Smoke Test (5 tournaments per personality)
+## Step 1 — Smoke Test (5 tournaments per personality, 3-fold CV)
 
 Verify the full pipeline end-to-end before running the full dataset.
 The tournament count for `--first-pass` is controlled by
 `training.first_pass_tournaments` in `config.yaml` (default: **5**).
+LDA automatically uses **3-fold CV** in this mode.
 
 ```powershell
 cd leduc_holdem
@@ -155,13 +157,14 @@ cd leduc_holdem
 Expected output:
 - 4 personalities × 5 tournaments each → 20 CSVs written to `data/observations/`
 - 20 tournament JSON logs written to `data/tournament/`
-- LDA evaluated, best model saved to `data/models/best_lda_model.pkl`
+- LDA evaluated with 3-fold CV, best model saved to `data/models/best_lda_model.pkl`
 
 ---
 
-## Step 2 — Full Training Run (100 tournaments per personality)
+## Step 2 — Full Training Run (100 tournaments per personality, 5-fold CV)
 
 Controlled by `training.num_tournaments` in `config.yaml` (default: **100**).
+LDA uses **5-fold CV** (`lda.kfold_splits` in config).
 
 ```powershell
 cd leduc_holdem
@@ -181,8 +184,12 @@ Use this to re-evaluate the classifier against existing CSVs without rerunning t
 or to experiment with different `lda.kfold_splits` values in `config.yaml`.
 
 ```powershell
+# Re-run LDA on full-run CSVs (5-fold CV)
 cd leduc_holdem
 .venv\Scripts\python.exe non_instruction/main_ni.py --eval-only
+
+# Re-run LDA on first-pass CSVs (3-fold CV)
+.venv\Scripts\python.exe non_instruction/main_ni.py --eval-only --first-pass
 ```
 
 ---
@@ -235,7 +242,7 @@ training:
   random_seed_base: 42
 
 lda:
-  kfold_splits: 5               # automatically capped to min class size
+  kfold_splits: 5               # full-run CV folds; --first-pass always uses 3
 ```
 
 ---

@@ -141,6 +141,7 @@ def run_lda_pipeline(
     y_train: npt.NDArray[np.int32],
     y_test: npt.NDArray[np.int32],
     cfg: dict,
+    kfold_splits_override: int | None = None,
 ) -> Tuple[PCA, List[Dict[str, Any]]]:
     """Run the full LDA evaluation pipeline over all parameter sets.
 
@@ -152,23 +153,34 @@ def run_lda_pipeline(
         y_train: Integer training labels.
         y_test: Integer test labels.
         cfg: Full parsed config dict.
+        kfold_splits_override: When provided, use this fold count instead
+            of cfg["lda"]["kfold_splits"]. Pass 3 for first-pass mode,
+            leave None to use the config value (typically 5).
 
     Returns:
         Tuple of (fitted_pca, list_of_result_dicts). Each result dict
         contains: params, cv_mean, cv_std, mislabel_pct, confusion, lda.
     """
-    kfold_splits: int = cfg["lda"]["kfold_splits"]
     personalities: List[str] = cfg["training"]["personalities"]
 
-    # Cap kfold_splits to the smallest class size so StratifiedKFold
-    # never requests more folds than there are samples in any class.
+    # Caller may override the fold count (e.g. 3 for first-pass mode).
+    kfold_splits: int = (
+        kfold_splits_override
+        if kfold_splits_override is not None
+        else cfg["lda"]["kfold_splits"]
+    )
+
+    # Defensive cap: StratifiedKFold requires n_splits ≤ smallest class size.
     min_class_count = int(np.bincount(y_train).min())
     if kfold_splits > min_class_count:
         print(
-            f"[LDA Pipeline] Reducing kfold_splits from {kfold_splits} to "
-            f"{min_class_count} (smallest class has {min_class_count} samples)."
+            f"[LDA Pipeline] WARNING: kfold_splits={kfold_splits} exceeds "
+            f"smallest class size ({min_class_count}). "
+            f"Reducing to {min_class_count}."
         )
         kfold_splits = min_class_count
+
+    print(f"[LDA Pipeline] Using {kfold_splits}-fold stratified cross-validation.")
 
     pca, X_train_pca, X_test_pca = fit_pca(X_train, X_test)
 
