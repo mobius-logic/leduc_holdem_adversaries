@@ -95,7 +95,19 @@ def evaluate_lda_params(
 
     # Cross-validation.
     skf = StratifiedKFold(n_splits=kfold_splits)
-    cv_scores = cross_val_score(lda, X_train, y_train, cv=skf)
+    try:
+        cv_scores = cross_val_score(lda, X_train, y_train, cv=skf)
+    except (ValueError, Exception) as exc:
+        print(f"  CV failed ({type(exc).__name__}): {exc}")
+        print("  Skipping this configuration (insufficient data or singular matrix).")
+        return {
+            "params": params,
+            "cv_mean": -1.0,
+            "cv_std": 0.0,
+            "mislabel_pct": 100.0,
+            "confusion": None,
+            "lda": None,
+        }
     cv_mean = float(cv_scores.mean())
     cv_std = float(cv_scores.std())
     print(
@@ -147,6 +159,16 @@ def run_lda_pipeline(
     """
     kfold_splits: int = cfg["lda"]["kfold_splits"]
     personalities: List[str] = cfg["training"]["personalities"]
+
+    # Cap kfold_splits to the smallest class size so StratifiedKFold
+    # never requests more folds than there are samples in any class.
+    min_class_count = int(np.bincount(y_train).min())
+    if kfold_splits > min_class_count:
+        print(
+            f"[LDA Pipeline] Reducing kfold_splits from {kfold_splits} to "
+            f"{min_class_count} (smallest class has {min_class_count} samples)."
+        )
+        kfold_splits = min_class_count
 
     pca, X_train_pca, X_test_pca = fit_pca(X_train, X_test)
 

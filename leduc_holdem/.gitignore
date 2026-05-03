@@ -1,8 +1,12 @@
 # Auto-created runtime data — do not commit.
 data/
 
+# Trained model artefacts
+*.pkl
+
 # Python bytecode
 __pycache__/
 *.pyc
 *.pyo
 
+.venv/

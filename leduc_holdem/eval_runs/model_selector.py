@@ -33,9 +33,13 @@ def select_best_model(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     print("\n[ModelSelector] Selecting best model...")
 
+    # Filter out configs that failed (cv_mean == -1.0, lda == None).
+    viable = [r for r in results if r.get("lda") is not None]
+    pool = viable if viable else results  # fall back to all if none viable
+
     # Sort by cv_mean descending, then mislabel_pct ascending.
     ranked = sorted(
-        results,
+        pool,
         key=lambda r: (-r["cv_mean"], r["mislabel_pct"]),
     )
 
