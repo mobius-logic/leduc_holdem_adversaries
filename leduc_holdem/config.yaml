@@ -28,11 +28,11 @@ training:
   random_seed_base: 42               # seed = base + tournament_index
 
 observation:
-  vector_length: 22
+  vector_length: 28
   slots_per_hand: 4
   hands_per_tournament: 15
   pad_value: -1.0
-  flat_length: 1335                  # 15 hands x 4 slots x 22 features + 15 aggregate features
+  flat_length: 1695                  # 15 hands x 4 slots x 28 features + 15 aggregate features
   agg_length: 15                     # 5 summary + 3 preflop raise + 2 preflop fold + 4 postflop raise + 1 postflop fold
 
 paths:

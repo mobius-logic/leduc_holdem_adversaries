@@ -1,8 +1,8 @@
 """Observation collection, padding, and CSV persistence.
 
-Collects 22-element observation vectors before each personality agent
+Collects 28-element observation vectors before each personality agent
 action, manages the 4-slot-per-hand padding structure, and serialises
-the resulting 20×22 matrix to CSV at the end of each tournament.
+the resulting (hands*4)×28 matrix to CSV at the end of each tournament.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from game.state import GameState, Round
 
 # Constant for padding value.
 _PAD = -1.0
-_VECTOR_LENGTH = 22
+_VECTOR_LENGTH = 28
 _SLOTS_PER_HAND = 4
 
 # One-hot indices for last opponent action encoding.
@@ -48,9 +48,9 @@ def _pad_vector() -> npt.NDArray[np.float32]:
 
 
 def _build_observation_vector(
-    state: GameState, win_prob: float
+    state: GameState, win_prob: float, running_rates: npt.NDArray[np.float32]
 ) -> npt.NDArray[np.float32]:
-    """Construct the 22-element observation vector from game state.
+    """Construct the 28-element observation vector from game state.
 
     Index mapping:
       [0]    Win probability (float 0.0–1.0)
@@ -66,16 +66,24 @@ def _build_observation_vector(
              Reflects the CURRENT action (callback fires after act()).
              All zeros on the very first action of the tournament
              (no action has been taken yet for slot 0 of hand 0).
+      [22]   preflop_raise_Q  – running Queen pre-flop raise rate (history so far)
+      [23]   preflop_raise_K  – running King  pre-flop raise rate
+      [24]   preflop_fold_J   – running Jack  pre-flop fold  rate
+      [25]   preflop_fold_Q   – running Queen pre-flop fold  rate
+      [26]   postflop_raise_J – running J-high post-flop raise rate (no pair)
+      [27]   postflop_fold_J  – running J-high post-flop fold  rate (no pair)
 
     Args:
         state: Current fully-updated game state.
         win_prob: Exact win probability for the personality agent.
+        running_rates: float32 array of shape (6,) — card-conditioned running
+            rates accumulated from all previous actions this tournament.
 
     Returns:
-        float32 ndarray of shape (22,).
+        float32 ndarray of shape (28,).
 
     Raises:
-        ValueError: If the constructed vector does not have shape (22,).
+        ValueError: If the constructed vector does not have shape (28,).
     """
     vec = np.zeros(_VECTOR_LENGTH, dtype=np.float32)
 
@@ -120,6 +128,9 @@ def _build_observation_vector(
             vec[19 + _PERS_ACTION_RAISE] = 1.0
         elif pers_action == "Fold":
             vec[19 + _PERS_ACTION_FOLD] = 1.0
+
+    # [22–27] Running card-conditioned action rates (history accumulated so far in tournament).
+    vec[22:28] = running_rates
 
     if vec.shape != (_VECTOR_LENGTH,):
         raise ValueError(
@@ -186,12 +197,38 @@ class TournamentObserver:
         """
         self._win_prob_fn = fn
 
+    def _running_rates(self) -> npt.NDArray[np.float32]:
+        """Return the 6 card-conditioned running rates accumulated so far.
+
+        Called inside record() before record_personality_action() updates counts,
+        so rates reflect all previous actions (not the current one).
+
+        Returns:
+            float32 array of shape (6,): [preflop_raise_Q, preflop_raise_K,
+            preflop_fold_J, preflop_fold_Q, postflop_raise_J, postflop_fold_J].
+        """
+        def _rate(d: Dict[str, int], action: str) -> float:
+            return float(d[action] / d["total"]) if d["total"] > 0 else 0.0
+
+        return np.array(
+            [
+                _rate(self._preflop_counts["Q"], "Raise"),
+                _rate(self._preflop_counts["K"], "Raise"),
+                _rate(self._preflop_counts["J"], "Fold"),
+                _rate(self._preflop_counts["Q"], "Fold"),
+                _rate(self._postflop_counts["J_nopair"], "Raise"),
+                _rate(self._postflop_counts["J_nopair"], "Fold"),
+            ],
+            dtype=np.float32,
+        )
+
     def record(self, state: GameState, slot_index: int) -> None:
         """Record an observation vector into the correct slot.
 
-        Called immediately before the personality agent's action is
-        applied. Slot index determines placement within the hand's 4
-        slots (0 = 1st pre-flop, 1 = 2nd pre-flop, 2 = 1st post-flop,
+        Called immediately after the personality agent acts (obs_callback fires
+        after act() so last_personality_action reflects the current action).
+        Slot index determines placement within the hand's 4 slots
+        (0 = 1st pre-flop, 1 = 2nd pre-flop, 2 = 1st post-flop,
         3 = 2nd post-flop).
 
         Args:
@@ -210,7 +247,7 @@ class TournamentObserver:
             return
 
         win_prob = self._win_prob_fn(state)
-        vec = _build_observation_vector(state, win_prob)
+        vec = _build_observation_vector(state, win_prob, self._running_rates())
         self.data[hand, slot_index] = vec
         print(
             f"    [Observer] Recorded slot {slot_index} for hand "
@@ -328,13 +365,13 @@ class TournamentObserver:
         )
 
     def to_matrix(self) -> npt.NDArray[np.float32]:
-        """Flatten observation buffer to a 20×22 matrix.
+        """Flatten observation buffer to a (hands*4)×28 matrix.
 
         Returns:
-            float32 ndarray of shape (20, 22).
+            float32 ndarray of shape (hands_per_tournament*4, 28).
 
         Raises:
-            ValueError: If the resulting matrix lacks shape (20, 22).
+            ValueError: If the resulting matrix has unexpected shape.
         """
         total_slots = self.hands_per_tournament * _SLOTS_PER_HAND
         matrix = self.data.reshape(total_slots, _VECTOR_LENGTH)

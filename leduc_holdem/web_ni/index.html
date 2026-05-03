@@ -114,6 +114,19 @@
     .personality-btn[data-p="analytical"]  .p-name { color: #3498db; }
     .personality-btn[data-p="conservative"] .p-name { color: #27ae60; }
     .personality-btn[data-p="reckless"]    .p-name { color: #9b59b6; }
+    .personality-btn[data-p="random"]      .p-name { color: #f39c12; }
+    .personality-btn[data-p="random"] {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      border-color: rgba(243,156,18,0.35);
+      background: rgba(243,156,18,0.07);
+    }
+    .personality-btn[data-p="random"]:hover {
+      border-color: rgba(243,156,18,0.7);
+      background: rgba(243,156,18,0.14);
+    }
 
     .setup-footer {
       font-size: 0.75rem;
@@ -473,6 +486,11 @@
         <span class="p-icon">🎲</span>
         <span class="p-name">Reckless</span>
         <span class="p-desc">Never checks — always raises or folds. Zero patience. Gets wilder as chips shrink.</span>
+      </button>
+      <button class="personality-btn" data-p="random" onclick="startGame('')">
+        <span class="p-icon">🔀</span>
+        <span class="p-name">Random</span>
+        <span class="p-desc">Let the server pick a random opponent — you won't know who you're up against until it plays.</span>
       </button>
     </div>
 
