@@ -1,6 +1,9 @@
 # Auto-created runtime data — do not commit.
 data/
 
+# Archived LLM-based code (kept on disk for reference, not tracked)
+archive/
+
 # Trained model artefacts
 *.pkl
 
