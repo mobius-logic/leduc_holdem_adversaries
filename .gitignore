@@ -1,2 +1,6 @@
 # Trained model artefacts — large binary files, not committed
 LDA_models/
+
+# Python virtual environments
+.venv/
+leduc_holdem/.venv/
