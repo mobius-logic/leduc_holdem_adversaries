@@ -91,7 +91,7 @@ Ties split the pot (rounded down; remainder stays out).
 
 ---
 
-## Observation Vector (19 features)
+## Observation Vector (22 features)
 
 | Index | Feature | Encoding |
 |---|---|---|
@@ -102,15 +102,16 @@ Ties split the pot (rounded down; remainder stays out).
 | 4–6 | Last opponent action | One-hot: [Check/Call, Raise, Fold] |
 | 7–12 | Private card | One-hot: [J♥, Q♥, K♥, J♠, Q♠, K♠] |
 | 13–18 | Community card | One-hot (all zeros pre-flop) |
+| 19–21 | Last personality action | One-hot: [Check/Call, Raise, Fold] |
 
 Each hand produces exactly **4 observation slots** (2 pre-flop + 2 post-flop).
-Unused slots are padded with `-1.0`. Each tournament produces a **20 × 19** CSV.
+Unused slots are padded with `-1.0`. Each tournament produces a **20 × 22** CSV.
 
 ---
 
 ## LDA Pipeline
 
-1. Load N CSVs per personality → stack to **(N, 380)** NDArray
+1. Load N CSVs per personality → stack to **(N, 440)** NDArray
 2. 75/25 train/test split per personality
 3. Concatenate → **X_train**, **X_test**
 4. PCA: `n_components = min(n_samples - 1, n_features)`

@@ -51,6 +51,8 @@ class GameState:
         current_player: Index of the next player to act (0 or 1).
         last_opponent_action: Most recent action taken by the opponent
             agent, or None if no opponent action has occurred this hand.
+        last_personality_action: Most recent action taken by the personality
+            agent, or None if no personality action has occurred this hand.
         hand_over: True when the hand has ended.
         winner: Player index who won the pot, or None for a tie.
         preflop_done: True once the pre-flop round is resolved.
@@ -71,6 +73,7 @@ class GameState:
     actions_this_round: List[str]
     current_player: int
     last_opponent_action: Optional[str]
+    last_personality_action: Optional[str]
     hand_over: bool
     winner: Optional[int]        # None means tie
     preflop_done: bool
@@ -124,6 +127,7 @@ class GameState:
             actions_this_round=[],
             current_player=first_player,
             last_opponent_action=None,
+            last_personality_action=None,
             hand_over=False,
             winner=None,
             preflop_done=False,

@@ -1,8 +1,8 @@
 """Observation collection, padding, and CSV persistence.
 
-Collects 19-element observation vectors before each personality agent
+Collects 22-element observation vectors before each personality agent
 action, manages the 4-slot-per-hand padding structure, and serialises
-the resulting 20×19 matrix to CSV at the end of each tournament.
+the resulting 20×22 matrix to CSV at the end of each tournament.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from game.state import GameState, Round
 
 # Constant for padding value.
 _PAD = -1.0
-_VECTOR_LENGTH = 19
+_VECTOR_LENGTH = 22
 _SLOTS_PER_HAND = 4
 
 # One-hot indices for last opponent action encoding.
@@ -27,12 +27,17 @@ _OPP_ACTION_CHECK_CALL = 0
 _OPP_ACTION_RAISE = 1
 _OPP_ACTION_FOLD = 2
 
+# One-hot indices for last personality action encoding (same layout).
+_PERS_ACTION_CHECK_CALL = 0
+_PERS_ACTION_RAISE = 1
+_PERS_ACTION_FOLD = 2
+
 
 def _pad_vector() -> npt.NDArray[np.float32]:
-    """Return a 19-element padding vector filled with -1.0.
+    """Return a 22-element padding vector filled with -1.0.
 
     Returns:
-        float32 array of shape (19,) with all values -1.0.
+        float32 array of shape (22,) with all values -1.0.
     """
     return np.full(_VECTOR_LENGTH, _PAD, dtype=np.float32)
 
@@ -40,7 +45,7 @@ def _pad_vector() -> npt.NDArray[np.float32]:
 def _build_observation_vector(
     state: GameState, win_prob: float
 ) -> npt.NDArray[np.float32]:
-    """Construct the 19-element observation vector from game state.
+    """Construct the 22-element observation vector from game state.
 
     Index mapping:
       [0]    Win probability (float 0.0–1.0)
@@ -52,16 +57,18 @@ def _build_observation_vector(
       [7–12] Private card one-hot over [J♥,Q♥,K♥,J♠,Q♠,K♠]
       [13–18]Community card one-hot over same order.
              ALL ZEROS pre-flop.
+      [19–21]Last personality action one-hot [Check/Call, Raise, Fold].
+             All zeros if no prior personality action this hand.
 
     Args:
         state: Current fully-updated game state.
         win_prob: Exact win probability for the personality agent.
 
     Returns:
-        float32 ndarray of shape (19,).
+        float32 ndarray of shape (22,).
 
     Raises:
-        ValueError: If the constructed vector does not have shape (19,).
+        ValueError: If the constructed vector does not have shape (22,).
     """
     vec = np.zeros(_VECTOR_LENGTH, dtype=np.float32)
 
@@ -97,6 +104,16 @@ def _build_observation_vector(
         comm_idx = card_list.index(state.community_card)
         vec[13 + comm_idx] = 1.0
 
+    # [19–21] Last personality action one-hot.
+    pers_action = state.last_personality_action
+    if pers_action is not None:
+        if pers_action in ("Check", "Call"):
+            vec[19 + _PERS_ACTION_CHECK_CALL] = 1.0
+        elif pers_action == "Raise":
+            vec[19 + _PERS_ACTION_RAISE] = 1.0
+        elif pers_action == "Fold":
+            vec[19 + _PERS_ACTION_FOLD] = 1.0
+
     if vec.shape != (_VECTOR_LENGTH,):
         raise ValueError(
             f"Observation vector shape {vec.shape} != ({_VECTOR_LENGTH},)"
@@ -119,7 +136,7 @@ class TournamentObserver:
 
     Attributes:
         hands_per_tournament: Number of hands in this tournament.
-        data: 3D buffer of shape (hands, 4, 19) for collected vectors.
+        data: 3D buffer of shape (hands, 4, 22) for collected vectors.
     """
 
     def __init__(self, hands_per_tournament: int) -> None:
@@ -177,13 +194,13 @@ class TournamentObserver:
         )
 
     def to_matrix(self) -> npt.NDArray[np.float32]:
-        """Flatten observation buffer to a 20×19 matrix.
+        """Flatten observation buffer to a 20×22 matrix.
 
         Returns:
-            float32 ndarray of shape (20, 19).
+            float32 ndarray of shape (20, 22).
 
         Raises:
-            ValueError: If the resulting matrix lacks shape (20, 19).
+            ValueError: If the resulting matrix lacks shape (20, 22).
         """
         total_slots = self.hands_per_tournament * _SLOTS_PER_HAND
         matrix = self.data.reshape(total_slots, _VECTOR_LENGTH)

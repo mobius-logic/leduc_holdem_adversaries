@@ -22,17 +22,17 @@ training:
     - aggressive
     - reckless
   num_tournaments: 100
-  first_pass_tournaments: 5          # Used for initial smoke test
+  first_pass_tournaments: 20          # Used for initial smoke test
   train_split: 0.75
   n_workers: 4                       # One per personality
   random_seed_base: 42               # seed = base + tournament_index
 
 observation:
-  vector_length: 19
+  vector_length: 22
   slots_per_hand: 4
   hands_per_tournament: 5
   pad_value: -1.0
-  flat_length: 380                   # 20 slots x 19 features
+  flat_length: 440                   # 20 slots x 22 features
 
 paths:
   instructions_dir: instructions/

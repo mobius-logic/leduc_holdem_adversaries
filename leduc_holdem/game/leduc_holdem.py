@@ -108,6 +108,7 @@ class LeducHoldemGame:
                 if obs_callback is not None:
                     obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
+                state.last_personality_action = action
                 preflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
@@ -162,6 +163,7 @@ class LeducHoldemGame:
                 if obs_callback is not None:
                     obs_callback(state, slot)
                 action = personality_agent.act(state, legal)
+                state.last_personality_action = action
                 postflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
