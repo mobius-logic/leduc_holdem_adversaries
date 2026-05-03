@@ -449,6 +449,71 @@
     .log-entry.win  { color: #7fdb9a; }
     .log-entry.lose { color: #f47070; }
 
+    /* ── LDA personality probability section ── */
+    .lda-header {
+      padding: 8px 14px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #c8b87a;
+      background: rgba(0,0,0,0.2);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+
+    #lda-entries {
+      height: 168px;
+      overflow-y: auto;
+      padding: 5px 10px 6px;
+      flex-shrink: 0;
+    }
+
+    #lda-entries::-webkit-scrollbar { width: 4px; }
+    #lda-entries::-webkit-scrollbar-track { background: transparent; }
+    #lda-entries::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+    .lda-step {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 4px;
+    }
+
+    .lda-step-num {
+      width: 20px;
+      text-align: right;
+      font-size: 0.64rem;
+      color: #5a6a4a;
+      flex-shrink: 0;
+    }
+
+    .lda-bar {
+      display: flex;
+      flex: 1;
+      height: 10px;
+      border-radius: 3px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .lda-seg-ana { background: #3498db; height: 100%; }
+    .lda-seg-con { background: #27ae60; height: 100%; }
+    .lda-seg-agg { background: #e74c3c; height: 100%; }
+    .lda-seg-rec { background: #9b59b6; height: 100%; }
+
+    .lda-best-label {
+      font-size: 0.64rem;
+      width: 56px;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .lda-best-ana { color: #3498db; }
+    .lda-best-con { color: #27ae60; }
+    .lda-best-agg { color: #e74c3c; }
+    .lda-best-rec { color: #9b59b6; }
+
     /* ── Responsive ── */
     @media (max-height: 700px) {
       .table { gap: 12px; padding: 20px 40px; }
@@ -567,6 +632,9 @@
     <div class="log-panel">
       <div class="log-header">Game Log</div>
       <div id="log-entries"></div>
+      <!-- LDA personality probability estimates -->
+      <div class="lda-header">LDA Personality Estimate</div>
+      <div id="lda-entries"></div>
     </div>
 
   </div><!-- .main-layout -->
@@ -733,6 +801,7 @@ function render(s) {
 
   // ── Log ──
   renderLog(s.log, s.personality);
+  renderLdaProbs(s.lda_step_probs || []);
 }
 
 // ── Card rendering ────────────────────────────────────────────────────────────
@@ -762,6 +831,36 @@ function renderLog(entries, personality) {
     else if (line.startsWith(oppPrefix + ':'))     cls += ' llm';
     else if (line.startsWith(oppPrefix + ' wins')) cls += ' llm';
     return `<div class="${cls}">${esc(line)}</div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── LDA probability rendering ─────────────────────────────────────────────────
+function renderLdaProbs(probs) {
+  const container = document.getElementById('lda-entries');
+  if (!probs || !probs.length) {
+    container.innerHTML = '<div style="font-size:0.68rem;color:#3a4a2a;padding:4px 2px">Waiting for agent actions…</div>';
+    return;
+  }
+  container.innerHTML = probs.map(p => {
+    const ana = p.analytical  || 0;
+    const con = p.conservative || 0;
+    const agg = p.aggressive  || 0;
+    const rec = p.reckless    || 0;
+    const vals = { ana, con, agg, rec };
+    const best = Object.keys(vals).reduce((a, b) => vals[a] > vals[b] ? a : b);
+    const bestNames = { ana: 'Ana', con: 'Con', agg: 'Agg', rec: 'Rec' };
+    const pct = v => `${Math.round((v || 0) * 100)}%`;
+    return `<div class="lda-step">
+      <span class="lda-step-num">${p.step}</span>
+      <div class="lda-bar">
+        <div class="lda-seg-ana" style="width:${pct(vals.ana)}"></div>
+        <div class="lda-seg-con" style="width:${pct(vals.con)}"></div>
+        <div class="lda-seg-agg" style="width:${pct(vals.agg)}"></div>
+        <div class="lda-seg-rec" style="width:${pct(vals.rec)}"></div>
+      </div>
+      <span class="lda-best-label lda-best-${best}">${bestNames[best]} ${pct(vals[best])}</span>
+    </div>`;
   }).join('');
   container.scrollTop = container.scrollHeight;
 }

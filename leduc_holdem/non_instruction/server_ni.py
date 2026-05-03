@@ -31,10 +31,12 @@ from __future__ import annotations
 
 import argparse
 import os
+import pickle
 import random
 import sys
 from typing import Optional
 
+import numpy as np
 import yaml
 
 # Ensure leduc_holdem package root is importable regardless of cwd.
@@ -47,6 +49,7 @@ from game.deck import Deck          # noqa: E402
 from game.state import GameState, Round  # noqa: E402
 from game.leduc_holdem import LeducHoldemGame  # noqa: E402
 from training.win_probability import compute_win_probability  # noqa: E402
+from training.observer import TournamentObserver              # noqa: E402
 
 # Rule-based agents live in the agents/ subfolder.
 _NI_AGENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents")
@@ -83,6 +86,27 @@ def _make_agent(personality: str):
 
 _WEB_DIR = os.path.join(_LEDUC_ROOT, "web_ni")
 app = Flask(__name__, static_folder=_WEB_DIR)
+
+
+# ---------------------------------------------------------------------------
+# LDA sequential models (LDA_1 … LDA_60)
+# ---------------------------------------------------------------------------
+_LDA_MODELS_DIR = os.path.join(os.path.dirname(_LEDUC_ROOT), "LDA_models")
+_LDA_CACHE: dict = {}  # step (int) → {pca, lda, params}
+_LDA_LABEL_TO_NAME = {0: "analytical", 1: "conservative", 2: "aggressive", 3: "reckless"}
+
+
+def _load_lda(step: int):
+    """Load and cache LDA_{step}.pkl.  Returns None if the file is missing."""
+    if step in _LDA_CACHE:
+        return _LDA_CACHE[step]
+    path = os.path.join(_LDA_MODELS_DIR, f"LDA_{step}.pkl")
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as fh:
+        bundle = pickle.load(fh)
+    _LDA_CACHE[step] = bundle
+    return bundle
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +159,13 @@ class GameSession:
         # Acting-order tracker: None until the first deal, then strictly
         # alternated each hand.  Hand 1 is random; hand N+1 flips hand N.
         self._agent_acts_first: Optional[bool] = None
+        # LDA per-step observation tracking.
+        self._observer = TournamentObserver(hands_per_tournament=self.hands_per_tournament)
+        self._observer.set_win_prob_fn(compute_win_probability)
+        self._observer.set_starting_chips(gcfg["starting_chips"])
+        self._preflop_actions: int = 0   # agent preflop action count in current hand
+        self._postflop_actions: int = 0  # agent postflop action count in current hand
+        self._lda_step_probs: list = []  # [{step, analytical, conservative, aggressive, reckless}, ...]
         self._deal_hand()
 
     # ------------------------------------------------------------------
@@ -172,6 +203,10 @@ class GameSession:
             preflop_raise_size=gcfg["preflop_raise_size"],
             preflop_raise_cap=_PREFLOP_RAISE_CAP,   # 2 raises max pre-flop
         )
+        # Align hand_index with actual tournament sequence (acting_hand_idx is 0/1 for acting order only).
+        self.state.hand_index = self._playing_hand_idx
+        self._preflop_actions = 0
+        self._postflop_actions = 0
 
         pname = self.personality_name.title()
         first_label = f"{pname} acts first" if agent_acts_first else "You act first"
@@ -193,6 +228,21 @@ class GameSession:
             legal  = self.state.get_legal_actions()
             action = self._agent.act(self.state, legal)
             self.log.append(f"{self.personality_name.title()}: {action}")
+            # Record observation before applying action (mirrors training callback order).
+            self.state.last_personality_action = action
+            if self.state.round == Round.PRE_FLOP:
+                slot = self._preflop_actions
+                self._preflop_actions += 1
+            else:
+                slot = 2 + self._postflop_actions
+                self._postflop_actions += 1
+            if slot < 4:
+                self._observer.record(self.state, slot)
+                self._observer.record_personality_action(action, self.state)
+                global_step = self.hands_played * 4 + slot + 1  # 1-indexed for LDA_{step}
+                probs = self._compute_lda_probs(global_step)
+                if probs:
+                    self._lda_step_probs.append({"step": global_step, **probs})
             round_ended = self._game._apply_action(self.state, action)
             if self.state.hand_over:
                 self._end_hand()
@@ -254,6 +304,13 @@ class GameSession:
         self.log.append(
             f"Stacks → You ${self.stacks[_HUMAN]} · {pname} ${self.stacks[_AGENT]}"
         )
+        # Record hand outcome for partial aggregate features.
+        if self.state.winner == _AGENT:
+            self._observer.record_hand_result(True)
+        elif self.state.winner is None:
+            self._observer.record_hand_result(None)
+        else:
+            self._observer.record_hand_result(False)
         self.hands_played += 1
         if self.hands_played >= self.hands_per_tournament:
             self.phase = "tournament_over"
@@ -292,6 +349,31 @@ class GameSession:
             if self.state is None or self.state.hand_over:
                 return
         self._advance_agent()
+
+    def _compute_lda_probs(self, step: int) -> Optional[dict]:
+        """Run LDA_step on current partial observations.
+
+        Returns a dict {personality_name: probability} or None if the model file
+        is unavailable.
+        """
+        bundle = _load_lda(step)
+        if bundle is None:
+            return None
+        pca = bundle["pca"]
+        lda = bundle["lda"]
+        # First step*28 obs features (uninitialised slots remain -1 padding).
+        obs_flat = self._observer.data.reshape(-1, 28)  # (60, 28)
+        obs_part = obs_flat[:step].flatten()            # (step*28,)
+        # Partial agg — use current agent stack as the "final stack" proxy.
+        self._observer.set_final_stack(self.stacks[_AGENT])
+        agg_part = self._observer.to_aggregates()       # (15,)
+        feat = np.concatenate([obs_part, agg_part]).astype(np.float32).reshape(1, -1)
+        x_pca = pca.transform(feat)
+        probs = lda.predict_proba(x_pca)[0]
+        return {
+            _LDA_LABEL_TO_NAME.get(int(c), str(c)): round(float(p), 4)
+            for c, p in zip(lda.classes_, probs)
+        }
 
     def start_next_hand(self) -> None:
         if self.phase != "hand_summary":
@@ -347,6 +429,7 @@ class GameSession:
             "hand_winner": hand_winner,
             "tournament_winner": tournament_winner,
             "log": list(self.log[-60:]),
+            "lda_step_probs": list(self._lda_step_probs),
         }
 
 
