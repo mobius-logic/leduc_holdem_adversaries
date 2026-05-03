@@ -48,22 +48,40 @@ from game.state import GameState, Round  # noqa: E402
 from game.leduc_holdem import LeducHoldemGame  # noqa: E402
 from training.win_probability import compute_win_probability  # noqa: E402
 
-# AggressiveRuleAgent lives next to this file.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from aggressive_rule_agent import AggressiveRuleAgent  # noqa: E402
+# Rule-based agents live in the agents/ subfolder.
+_NI_AGENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agents")
+sys.path.insert(0, _NI_AGENTS_DIR)
+from aggressive_rule_agent   import AggressiveRuleAgent    # noqa: E402
+from analytical_rule_agent   import AnalyticalRuleAgent    # noqa: E402
+from conservative_rule_agent import ConservativeRuleAgent  # noqa: E402
+from reckless_rule_agent     import RecklessRuleAgent      # noqa: E402
 
 # Player-index aliases (PERSONALITY=0 = agent, OPPONENT=1 = human).
 _AGENT = 0
 _HUMAN = 1
 
-_PERSONALITY_NAME = "aggressive"
+# All supported rule-based personalities.
+_VALID_PERSONALITIES = {"aggressive", "analytical", "conservative", "reckless"}
 
 # Leduc Hold'em betting rules: maximum raises allowed per round.
 # After this many raises the Raise action is removed from legal moves.
 _PREFLOP_RAISE_CAP  = 2   # pre-flop:  +$2 per raise, max 2 raises
 _POSTFLOP_RAISE_CAP = 2   # post-flop: +$4 per raise, max 2 raises
 
-_WEB_DIR = os.path.join(_LEDUC_ROOT, "web")
+
+def _make_agent(personality: str):
+    """Instantiate the rule-based agent for the given personality name."""
+    if personality == "aggressive":
+        return AggressiveRuleAgent(win_prob_fn=compute_win_probability)
+    if personality == "analytical":
+        return AnalyticalRuleAgent(win_prob_fn=compute_win_probability)
+    if personality == "conservative":
+        return ConservativeRuleAgent(win_prob_fn=compute_win_probability)
+    if personality == "reckless":
+        return RecklessRuleAgent(win_prob_fn=compute_win_probability)
+    raise ValueError(f"Unknown personality: {personality!r}")
+
+_WEB_DIR = os.path.join(_LEDUC_ROOT, "web_ni")
 app = Flask(__name__, static_folder=_WEB_DIR)
 
 
@@ -93,16 +111,17 @@ _session: Optional["GameSession"] = None
 
 
 class GameSession:
-    """Manages one interactive tournament against the aggressive rule agent.
+    """Manages one interactive tournament against a rule-based personality agent.
 
     The human occupies player-index 1 (_HUMAN).
     The rule agent occupies player-index 0 (_AGENT).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, personality: str = "aggressive") -> None:
         gcfg = _CFG["game"]
+        self.personality_name = personality
         self._game  = LeducHoldemGame(_CFG)
-        self._agent = AggressiveRuleAgent(win_prob_fn=compute_win_probability)
+        self._agent = _make_agent(personality)
 
         self.hands_per_tournament: int = gcfg["hands_per_tournament"]
         self.stacks: list = [gcfg["starting_chips"], gcfg["starting_chips"]]
@@ -154,11 +173,12 @@ class GameSession:
             preflop_raise_cap=_PREFLOP_RAISE_CAP,   # 2 raises max pre-flop
         )
 
-        first_label = "Aggressive acts first" if agent_acts_first else "You act first"
+        pname = self.personality_name.title()
+        first_label = f"{pname} acts first" if agent_acts_first else "You act first"
         self.log.append(
             f"── Hand {self._playing_hand_idx + 1} / {self.hands_per_tournament} ──  "
             f"{first_label}  │  "
-            f"Stacks → You ${self.stacks[_HUMAN]} · Aggressive ${self.stacks[_AGENT]}"
+            f"Stacks → You ${self.stacks[_HUMAN]} · {pname} ${self.stacks[_AGENT]}"
         )
         self.log.append(f"Your card: {human_card}  │  Pot: ${self.state.pot}")
         self._advance_agent()
@@ -172,7 +192,7 @@ class GameSession:
         ):
             legal  = self.state.get_legal_actions()
             action = self._agent.act(self.state, legal)
-            self.log.append(f"Aggressive: {action}")
+            self.log.append(f"{self.personality_name.title()}: {action}")
             round_ended = self._game._apply_action(self.state, action)
             if self.state.hand_over:
                 self._end_hand()
@@ -216,11 +236,12 @@ class GameSession:
             if self.state.community_card
             else ""
         )
+        pname = self.personality_name.title()
         if self.state.winner is None:
             self.log.append("Tie! Pot split.")
         elif self.state.winner == _AGENT:
             self.log.append(
-                f"Aggressive wins! "
+                f"{pname} wins! "
                 f"[{self.state.personality_card} vs {self.state.opponent_card}"
                 f"{cc_str}]"
             )
@@ -231,16 +252,16 @@ class GameSession:
                 f"{cc_str}]"
             )
         self.log.append(
-            f"Stacks → You ${self.stacks[_HUMAN]} · Aggressive ${self.stacks[_AGENT]}"
+            f"Stacks → You ${self.stacks[_HUMAN]} · {pname} ${self.stacks[_AGENT]}"
         )
         self.hands_played += 1
         if self.hands_played >= self.hands_per_tournament:
             self.phase = "tournament_over"
-            self.log.append("── Tournament Over ── Your opponent was Aggressive!")
+            self.log.append(f"── Tournament Over ── Your opponent was {pname}!")
             if self.stacks[_HUMAN] > self.stacks[_AGENT]:
                 self.log.append("You win the tournament!")
             elif self.stacks[_AGENT] > self.stacks[_HUMAN]:
-                self.log.append("Aggressive wins the tournament!")
+                self.log.append(f"{pname} wins the tournament!")
             else:
                 self.log.append("Tournament tied!")
         else:
@@ -307,7 +328,7 @@ class GameSession:
         agent_stack = s.stacks[_AGENT] if s else self.stacks[_AGENT]
 
         return {
-            "personality": _PERSONALITY_NAME,   # always revealed (rule agent)
+            "personality": self.personality_name,   # always revealed (rule agent)
             "hand_number": self._playing_hand_idx + 1,
             "total_hands": self.hands_per_tournament,
             "round": s.round.name.lower() if s else None,
@@ -341,7 +362,13 @@ def index():
 @app.route("/api/new_game", methods=["POST"])
 def new_game():
     global _session
-    _session = GameSession()
+    body = request.get_json(force=True, silent=True) or {}
+    personality = body.get("personality", "").lower().strip()
+    if not personality:
+        personality = random.choice(sorted(_VALID_PERSONALITIES))
+    if personality not in _VALID_PERSONALITIES:
+        return jsonify({"error": f"Unknown personality: {personality!r}"}), 400
+    _session = GameSession(personality=personality)
     return jsonify(_session.to_dict())
 
 
@@ -391,6 +418,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"[server_ni] Serving at http://{args.host}:{args.port}")
-    print(f"[server_ni] Agent: deterministic aggressive rule engine (no LLM)")
+    print(f"[server_ni] Agents: deterministic rule engines for all 4 personalities (no LLM)")
     print(f"[server_ni] Web dir: {_WEB_DIR}")
     app.run(host=args.host, port=args.port, debug=False, threaded=False)

@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leduc Hold'em — Rule Engine</title>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Base ── */
+    body {
+      background: #14532d;
+      background-image:
+        radial-gradient(ellipse at 50% 0%, #1a6b38 0%, #0f3d20 80%);
+      font-family: 'Georgia', 'Times New Roman', serif;
+      color: #f5eed4;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Overlay (personality selection) ── */
+    #setup-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.82);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+
+    .setup-panel {
+      background: linear-gradient(160deg, #1a4a2a 0%, #0f3320 100%);
+      border: 2px solid #7a5020;
+      border-radius: 18px;
+      padding: 40px 52px;
+      max-width: 580px;
+      width: 92%;
+      text-align: center;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.75);
+    }
+
+    .setup-panel h1 {
+      font-size: 2.6rem;
+      color: #f0c330;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
+    .setup-panel .subtitle {
+      color: #90b878;
+      font-size: 0.88rem;
+      margin-bottom: 26px;
+      letter-spacing: 0.02em;
+    }
+
+    .engine-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 20px;
+      padding: 3px 14px;
+      font-size: 0.72rem;
+      color: #c8b87a;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 22px;
+    }
+
+    .personality-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .personality-btn {
+      padding: 18px 14px;
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+      color: #f5eed4;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.18s, background 0.18s, transform 0.12s;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .personality-btn:hover {
+      border-color: rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.09);
+      transform: translateY(-2px);
+    }
+
+    .personality-btn .p-icon { font-size: 1.4rem; }
+
+    .personality-btn .p-name {
+      font-size: 1.05rem;
+      font-weight: bold;
+    }
+
+    .personality-btn .p-desc {
+      font-size: 0.76rem;
+      color: #90a878;
+      line-height: 1.35;
+    }
+
+    .personality-btn[data-p="aggressive"]  .p-name { color: #e74c3c; }
+    .personality-btn[data-p="analytical"]  .p-name { color: #3498db; }
+    .personality-btn[data-p="conservative"] .p-name { color: #27ae60; }
+    .personality-btn[data-p="reckless"]    .p-name { color: #9b59b6; }
+
+    .setup-footer {
+      font-size: 0.75rem;
+      color: #607850;
+    }
+
+    /* ── Header ── */
+    #app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 20px;
+      background: rgba(0,0,0,0.32);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+
+    .hand-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.83rem;
+      color: #c8b87a;
+    }
+
+    .round-badge {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #c8b87a;
+      background: rgba(0,0,0,0.25);
+      padding: 2px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(200,184,122,0.3);
+    }
+
+    #header-new-game-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18);
+      color: #f5eed4;
+      padding: 5px 16px;
+      border-radius: 14px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      transition: background 0.15s;
+    }
+
+    #header-new-game-btn:hover { background: rgba(255,255,255,0.15); }
+
+    /* ── Main layout ── */
+    #game-area {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .main-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Table section ── */
+    .table-area {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .table {
+      width: 480px;
+      position: relative;
+      background: radial-gradient(ellipse at 50% 40%, #267a47 0%, #185e35 55%, #0e4425 100%);
+      border: 10px solid #6b3a1f;
+      border-radius: 200px;
+      padding: 32px 52px;
+      box-shadow:
+        0 0 0 4px #8b5a2b,
+        0 10px 48px rgba(0,0,0,0.75),
+        inset 0 0 90px rgba(0,0,0,0.28);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    /* ── Winner banner ── */
+    #winner-banner {
+      display: none;
+      position: absolute;
+      top: -18px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 20px;
+      border-radius: 16px;
+      font-size: 0.82rem;
+      font-weight: bold;
+      white-space: nowrap;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    }
+
+    /* ── Player rows ── */
+    .player-row {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+    }
+
+    .player-label {
+      font-size: 0.82rem;
+      color: #c8b87a;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stack-amount {
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #f5eed4;
+    }
+
+    /* Rule engine badge — replaces the LLM "thinking" spinner */
+    .engine-tag {
+      font-size: 0.62rem;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 1px 7px;
+      color: #a8c898;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    /* ── Cards ── */
+    .card {
+      width: 62px;
+      height: 88px;
+      border-radius: 8px;
+      box-shadow: 2px 3px 10px rgba(0,0,0,0.55);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      transition: transform 0.2s;
+      font-weight: bold;
+    }
+
+    .card.face-up {
+      background: #fffdf5;
+      color: #111;
+    }
+
+    .card.face-up .rank { font-size: 1.25rem; line-height: 1; }
+    .card.face-up .suit { font-size: 1.1rem;  line-height: 1; }
+    .card.face-up.red   { color: #c0392b; }
+
+    .card.face-down {
+      background: repeating-linear-gradient(
+        45deg,
+        #1c3b7a 0px, #1c3b7a 10px,
+        #254da0 10px, #254da0 20px
+      );
+      border: 2px solid #aabde0;
+    }
+
+    .card.face-down::after {
+      content: '';
+      width: 44px;
+      height: 64px;
+      border: 2px solid rgba(255,255,255,0.25);
+      border-radius: 4px;
+    }
+
+    .card.empty {
+      background: transparent;
+      border: 2px dashed rgba(255,255,255,0.18);
+      box-shadow: none;
+    }
+
+    .card.empty::after {
+      content: '?';
+      font-size: 1.2rem;
+      color: rgba(255,255,255,0.2);
+    }
+
+    /* ── Centre section ── */
+    .center-row {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .community-label {
+      font-size: 0.66rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #c8b87a;
+      text-align: center;
+      margin-bottom: 5px;
+    }
+
+    .pot-display { text-align: center; }
+
+    .pot-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #c8b87a;
+    }
+
+    .pot-value {
+      font-size: 2rem;
+      font-weight: bold;
+      line-height: 1.1;
+      color: #f0c330;
+    }
+
+    /* ── Divider ── */
+    .divider {
+      width: 78%;
+      height: 1px;
+      background: rgba(255,255,255,0.12);
+    }
+
+    /* ── Action buttons ── */
+    .actions-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      padding: 4px 0 2px;
+      min-height: 48px;
+    }
+
+    .action-btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 24px;
+      font-family: 'Georgia', serif;
+      font-size: 0.9rem;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 3px 9px rgba(0,0,0,0.4);
+      transition: transform 0.1s, box-shadow 0.1s, opacity 0.1s;
+      letter-spacing: 0.03em;
+    }
+
+    .action-btn:hover  { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(0,0,0,0.5); }
+    .action-btn:active { transform: translateY(1px);  box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+    .action-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+
+    .btn-check  { background: #27ae60; color: #fff; }
+    .btn-call   { background: #2980b9; color: #fff; }
+    .btn-raise  { background: #e67e22; color: #fff; }
+    .btn-fold   { background: #c0392b; color: #fff; }
+    .btn-next   { background: #f0c330; color: #2c2000; }
+    .btn-new    { background: #8e44ad; color: #fff;  }
+
+    .tournament-result {
+      font-size: 1.05rem;
+      font-weight: bold;
+      color: #f0c330;
+      text-align: center;
+    }
+
+    /* ── Log panel ── */
+    .log-panel {
+      width: 270px;
+      background: rgba(0,0,0,0.32);
+      border-left: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .log-header {
+      padding: 10px 14px;
+      font-size: 0.73rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #c8b87a;
+      background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+
+    #log-entries {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    #log-entries::-webkit-scrollbar { width: 4px; }
+    #log-entries::-webkit-scrollbar-track { background: transparent; }
+    #log-entries::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+    .log-entry {
+      font-size: 0.79rem;
+      line-height: 1.42;
+      color: #c8b590;
+      padding: 1px 0;
+    }
+
+    .log-entry.sep  { color: #c8b87a; font-weight: bold; margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 6px; }
+    .log-entry.you  { color: #7ecef4; }
+    .log-entry.llm  { color: #f4a860; }
+    .log-entry.win  { color: #7fdb9a; }
+    .log-entry.lose { color: #f47070; }
+
+    /* ── Responsive ── */
+    @media (max-height: 700px) {
+      .table { gap: 12px; padding: 20px 40px; }
+      .card  { width: 54px; height: 76px; }
+      .pot-value { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Personality selection overlay ── -->
+<div id="setup-overlay">
+  <div class="setup-panel">
+    <h1>Leduc Hold'em</h1>
+    <p class="subtitle">Rule-based opponents — no AI, instant decisions</p>
+    <div class="engine-badge">⚙ Rule Engine Mode</div>
+
+    <div class="personality-grid">
+      <button class="personality-btn" data-p="analytical" onclick="startGame('analytical')">
+        <span class="p-icon">🔍</span>
+        <span class="p-name">Analytical</span>
+        <span class="p-desc">Win-prob &gt; 60 % to bet. Checks Queens; folds Jacks to any bet. Never bluffs.</span>
+      </button>
+      <button class="personality-btn" data-p="conservative" onclick="startGame('conservative')">
+        <span class="p-icon">🛡</span>
+        <span class="p-name">Conservative</span>
+        <span class="p-desc">Applies −15 % prob discount. Never open-bets without a pair. Folds to almost any raise.</span>
+      </button>
+      <button class="personality-btn" data-p="aggressive" onclick="startGame('aggressive')">
+        <span class="p-icon">🔥</span>
+        <span class="p-name">Aggressive</span>
+        <span class="p-desc">Always raises Kings &amp; Queens. Bluffs Jacks. Raises at every opportunity.</span>
+      </button>
+      <button class="personality-btn" data-p="reckless" onclick="startGame('reckless')">
+        <span class="p-icon">🎲</span>
+        <span class="p-name">Reckless</span>
+        <span class="p-desc">Never checks — always raises or folds. Zero patience. Gets wilder as chips shrink.</span>
+      </button>
+    </div>
+
+    <p class="setup-footer">5 hands per game &nbsp;·&nbsp; $50 starting chips &nbsp;·&nbsp; $1 ante &nbsp;·&nbsp; 2 raises/round max</p>
+  </div>
+</div>
+
+<!-- ── Game area ── -->
+<div id="game-area">
+  <!-- Header bar -->
+  <div id="app-header">
+    <div class="hand-info">
+      <span id="hand-number-display">Hand 1 / 5</span>
+      <span id="round-badge" class="round-badge">Pre-Flop</span>
+    </div>
+    <!-- Rule engine — no thinking spinner needed; responses are instant -->
+    <span id="engine-mode-label" style="font-size:0.75rem;color:#a8c898;letter-spacing:0.06em;"></span>
+    <button id="header-new-game-btn" onclick="showSetup()">New Game</button>
+  </div>
+
+  <!-- Table + log -->
+  <div class="main-layout">
+
+    <!-- Poker table -->
+    <div class="table-area">
+      <div class="table">
+
+        <!-- Winner banner -->
+        <div id="winner-banner"></div>
+
+        <!-- Agent player (top) -->
+        <div class="player-row">
+          <div class="player-label">
+            <span id="llm-name-label" style="font-weight:bold;">Opponent</span>
+            &nbsp;·&nbsp;
+            <span class="stack-amount">$<span id="llm-stack">50</span></span>
+            <span class="engine-tag">rule</span>
+          </div>
+          <div id="llm-card" class="card face-down"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Community card + pot (centre) -->
+        <div class="center-row">
+          <div>
+            <div class="community-label">Community</div>
+            <div id="community-card" class="card empty"></div>
+          </div>
+          <div class="pot-display">
+            <div class="pot-label">Pot</div>
+            <div class="pot-value">$<span id="pot-amount">0</span></div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Human player (bottom) -->
+        <div class="player-row">
+          <div id="your-card" class="card empty"></div>
+          <div class="player-label">
+            You &nbsp;·&nbsp;
+            <span class="stack-amount">$<span id="your-stack">50</span></span>
+          </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div id="actions-bar" class="actions-bar"></div>
+
+      </div>
+    </div>
+
+    <!-- Game log -->
+    <div class="log-panel">
+      <div class="log-header">Game Log</div>
+      <div id="log-entries"></div>
+    </div>
+
+  </div><!-- .main-layout -->
+</div><!-- #game-area -->
+
+<script>
+'use strict';
+
+const PERSONALITY_COLOR = {
+  aggressive:   '#e74c3c',
+  analytical:   '#3498db',
+  conservative: '#27ae60',
+  reckless:     '#9b59b6',
+};
+
+let _state = null;
+
+// ── API helpers ──────────────────────────────────────────────────────────────
+async function api(path, body = null) {
+  const opts = {
+    method: body !== null ? 'POST' : 'GET',
+    headers: body !== null ? { 'Content-Type': 'application/json' } : {},
+    body:    body !== null ? JSON.stringify(body) : undefined,
+  };
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+// ── Entry points ─────────────────────────────────────────────────────────────
+async function startGame(personality) {
+  hideSetup();
+  const data = await api('/api/new_game', { personality });
+  if (data.error) { alert(data.error); showSetup(); return; }
+  _state = data;
+  render(_state);
+}
+
+async function doAction(action) {
+  disableActionButtons();
+  const data = await api('/api/action', { action });
+  if (data.error) { alert(data.error); return; }
+  _state = data;
+  render(_state);
+}
+
+async function nextHand() {
+  const data = await api('/api/next_hand', {});
+  if (data.error) { alert(data.error); return; }
+  _state = data;
+  render(_state);
+}
+
+function showSetup() {
+  document.getElementById('setup-overlay').style.display = 'flex';
+  document.getElementById('game-area').style.display = 'none';
+}
+
+function hideSetup() {
+  document.getElementById('setup-overlay').style.display = 'none';
+  document.getElementById('game-area').style.display = 'flex';
+  document.getElementById('game-area').style.flexDirection = 'column';
+}
+
+// ── Main render ───────────────────────────────────────────────────────────────
+function render(s) {
+  const phase  = s.phase;
+  const pName  = s.personality ? capitalize(s.personality) : '???';
+  const pColor = s.personality ? (PERSONALITY_COLOR[s.personality] || '#fff') : '#aaa';
+
+  // ── Header ──
+  document.getElementById('hand-number-display').textContent =
+    `Hand ${s.hand_number} / ${s.total_hands}`;
+  document.getElementById('round-badge').textContent =
+    s.round === 'post_flop' ? 'Post-Flop' : 'Pre-Flop';
+  document.getElementById('engine-mode-label').textContent =
+    s.personality ? `⚙ ${pName} rule engine` : '';
+
+  // ── Agent player ──
+  const llmLabel = document.getElementById('llm-name-label');
+  llmLabel.textContent  = pName;
+  llmLabel.style.color  = pColor;
+  document.getElementById('llm-stack').textContent  = s.llm_stack;
+  document.getElementById('your-stack').textContent = s.your_stack;
+  document.getElementById('pot-amount').textContent  = s.pot;
+
+  // ── Cards ──
+  renderCard('llm-card',  s.llm_card,    /* hidden= */ !s.llm_card);
+  renderCard('your-card', s.your_card,   false);
+
+  const showCommunityFaceDown =
+    !s.community_card &&
+    s.round === 'pre_flop' &&
+    phase !== 'tournament_over';
+  if (showCommunityFaceDown) {
+    const cc = document.getElementById('community-card');
+    cc.className = 'card face-down';
+    cc.innerHTML = '';
+  } else {
+    renderCard('community-card', s.community_card, false);
+  }
+
+  // ── Winner banner ──
+  const banner = document.getElementById('winner-banner');
+  if (phase === 'hand_summary' || phase === 'tournament_over') {
+    banner.style.display = 'block';
+    if (s.hand_winner === 'you') {
+      banner.textContent = '🏆 You win this hand!';
+      Object.assign(banner.style, { background: '#1e8449', color: '#fff' });
+    } else if (s.hand_winner === 'llm') {
+      banner.textContent = `${pName} wins this hand`;
+      Object.assign(banner.style, { background: '#922b21', color: '#fff' });
+    } else if (s.hand_winner === 'tie') {
+      banner.textContent = 'Tie — pot split';
+      Object.assign(banner.style, { background: '#b7950b', color: '#fff' });
+    } else {
+      banner.style.display = 'none';
+    }
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // ── Actions bar ──
+  const bar = document.getElementById('actions-bar');
+  bar.innerHTML = '';
+
+  if (phase === 'your_turn') {
+    for (const action of s.legal_actions) {
+      const btn = document.createElement('button');
+      btn.className = `action-btn btn-${action.toLowerCase()}`;
+      btn.textContent = action;
+      btn.addEventListener('click', () => doAction(action));
+      bar.appendChild(btn);
+    }
+  } else if (phase === 'hand_summary') {
+    const btn = document.createElement('button');
+    btn.className = 'action-btn btn-next';
+    btn.textContent = 'Next Hand →';
+    btn.addEventListener('click', nextHand);
+    bar.appendChild(btn);
+  } else if (phase === 'tournament_over') {
+    const resultText =
+      s.tournament_winner === 'you'
+        ? '🏆 You win the tournament!'
+        : s.tournament_winner === 'tie'
+        ? "It's a tie!"
+        : `${pName} wins the tournament!`;
+    const result = document.createElement('div');
+    result.className = 'tournament-result';
+    result.textContent = resultText;
+    bar.appendChild(result);
+
+    const rev = document.createElement('div');
+    rev.style.cssText = `font-size:0.88rem;text-align:center;margin-top:4px;color:${pColor};`;
+    rev.textContent = `Opponent: ${pName} rule engine`;
+    bar.appendChild(rev);
+
+    const btn = document.createElement('button');
+    btn.className = 'action-btn btn-new';
+    btn.style.marginTop = '8px';
+    btn.textContent = 'Play Again';
+    btn.addEventListener('click', showSetup);
+    bar.appendChild(btn);
+  }
+
+  // ── Log ──
+  renderLog(s.log, s.personality);
+}
+
+// ── Card rendering ────────────────────────────────────────────────────────────
+function renderCard(elemId, cardStr, faceDown) {
+  const el = document.getElementById(elemId);
+  if (!cardStr) {
+    el.className = faceDown ? 'card face-down' : 'card empty';
+    el.innerHTML = '';
+    return;
+  }
+  const suit  = cardStr.slice(-1);
+  const rank  = cardStr.slice(0, -1);
+  const isRed = suit === '♥';
+  el.className = `card face-up${isRed ? ' red' : ''}`;
+  el.innerHTML = `<span class="rank">${esc(rank)}</span><span class="suit">${esc(suit)}</span>`;
+}
+
+// ── Log rendering ─────────────────────────────────────────────────────────────
+function renderLog(entries, personality) {
+  const container = document.getElementById('log-entries');
+  const oppPrefix = personality ? capitalize(personality) : 'Opponent';
+  container.innerHTML = entries.map(line => {
+    let cls = 'log-entry';
+    if (line.startsWith('──'))                     cls += ' sep';
+    else if (/^You:/.test(line))                   cls += ' you';
+    else if (/^You win/.test(line))                cls += ' win';
+    else if (line.startsWith(oppPrefix + ':'))     cls += ' llm';
+    else if (line.startsWith(oppPrefix + ' wins')) cls += ' llm';
+    return `<div class="${cls}">${esc(line)}</div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function disableActionButtons() {
+  document.querySelectorAll('#actions-bar .action-btn')
+    .forEach(b => { b.disabled = true; });
+}
+
+function capitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+</script>
+</body>
+</html>
