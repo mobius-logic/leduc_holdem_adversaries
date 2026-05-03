@@ -32,8 +32,8 @@ observation:
   slots_per_hand: 4
   hands_per_tournament: 15
   pad_value: -1.0
-  flat_length: 1325                  # 15 hands x 4 slots x 22 features + 5 aggregate features
-  agg_length: 5                      # raise_rate, call_check_rate, fold_rate, net_winnings_norm, hand_win_rate
+  flat_length: 1335                  # 15 hands x 4 slots x 22 features + 15 aggregate features
+  agg_length: 15                     # 5 summary + 3 preflop raise + 2 preflop fold + 4 postflop raise + 1 postflop fold
 
 paths:
   instructions_dir: instructions/

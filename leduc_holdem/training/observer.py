@@ -8,7 +8,7 @@ the resulting 20×22 matrix to CSV at the end of each tournament.
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -33,8 +33,9 @@ _PERS_ACTION_RAISE = 1
 _PERS_ACTION_FOLD = 2
 
 # Number of tournament-level aggregate features appended after the flat obs matrix.
-# [raise_rate, call_check_rate, fold_rate, net_winnings_norm, hand_win_rate]
-_AGG_LENGTH = 5
+# 5 summary + 3 preflop raise rates + 2 preflop fold rates + 4 postflop raise rates
+# + 1 postflop J-high fold rate = 15
+_AGG_LENGTH = 15
 
 
 def _pad_vector() -> npt.NDArray[np.float32]:
@@ -167,6 +168,16 @@ class TournamentObserver:
         self._starting_chips: int = 0
         self._final_stack: int = 0
 
+        # Card-conditioned action tracking (preflop, by private card rank).
+        self._preflop_counts: Dict[str, Dict[str, int]] = {
+            r: {"Raise": 0, "Fold": 0, "total": 0} for r in ("J", "Q", "K")
+        }
+        # Card-conditioned action tracking (postflop, by hand strength).
+        self._postflop_counts: Dict[str, Dict[str, int]] = {
+            k: {"Raise": 0, "Fold": 0, "total": 0}
+            for k in ("pair", "K_nopair", "Q_nopair", "J_nopair")
+        }
+
     def set_win_prob_fn(self, fn) -> None:
         """Attach a win probability function.
 
@@ -210,15 +221,28 @@ class TournamentObserver:
         """Set the starting chip count used for net-winnings normalisation."""
         self._starting_chips = chips
 
-    def record_personality_action(self, action: str) -> None:
-        """Append one personality action to the tournament action log.
+    def record_personality_action(self, action: str, state: GameState) -> None:
+        """Append one personality action to the log and update card-conditioned counters.
 
         Called from the game loop immediately after each personality action.
 
         Args:
             action: One of 'Check', 'Call', 'Raise', 'Fold'.
+            state: Current game state (used for card-conditioned tracking).
         """
         self._action_log.append(action)
+        rank = state.personality_card.rank
+        if state.round == Round.PRE_FLOP:
+            self._preflop_counts[rank]["total"] += 1
+            if action in ("Raise", "Fold"):
+                self._preflop_counts[rank][action] += 1
+        else:  # POST_FLOP
+            if state.community_card is not None:
+                comm_rank = state.community_card.rank
+                key = "pair" if rank == comm_rank else f"{rank}_nopair"
+                self._postflop_counts[key]["total"] += 1
+                if action in ("Raise", "Fold"):
+                    self._postflop_counts[key][action] += 1
 
     def record_hand_result(self, won: Optional[bool]) -> None:
         """Record the outcome of one hand.
@@ -238,17 +262,27 @@ class TournamentObserver:
         self._final_stack = stack
 
     def to_aggregates(self) -> npt.NDArray[np.float32]:
-        """Compute 5 tournament-level aggregate features.
+        """Compute 15 tournament-level aggregate features.
 
         Features (by index):
-            [0] raise_rate        — Raise count / total personality actions
-            [1] call_check_rate   — (Call + Check) count / total actions
-            [2] fold_rate         — Fold count / total actions
-            [3] net_winnings_norm — (final_stack - starting_chips) / starting_chips
-            [4] hand_win_rate     — weighted wins / total hands (tie = 0.5)
+            [0]  raise_rate          — Raise / total personality actions
+            [1]  call_check_rate     — (Call+Check) / total actions
+            [2]  fold_rate           — Fold / total actions
+            [3]  net_winnings_norm   — (final_stack - starting_chips) / starting_chips
+            [4]  hand_win_rate       — weighted wins / total hands (tie = 0.5)
+            [5]  preflop_raise_J     — raise rate pre-flop when holding a Jack
+            [6]  preflop_raise_Q     — raise rate pre-flop when holding a Queen
+            [7]  preflop_raise_K     — raise rate pre-flop when holding a King
+            [8]  preflop_fold_J      — fold  rate pre-flop when holding a Jack
+            [9]  preflop_fold_Q      — fold  rate pre-flop when holding a Queen
+            [10] postflop_raise_pair — raise rate post-flop with a pair
+            [11] postflop_raise_K    — raise rate post-flop with K-high (no pair)
+            [12] postflop_raise_Q    — raise rate post-flop with Q-high (no pair)
+            [13] postflop_raise_J    — raise rate post-flop with J-high (no pair)
+            [14] postflop_fold_J     — fold  rate post-flop with J-high (no pair)
 
         Returns:
-            float32 ndarray of shape (5,).
+            float32 ndarray of shape (15,).
         """
         total = len(self._action_log)
         if total > 0:
@@ -269,8 +303,27 @@ class TournamentObserver:
             else 0.0
         )
 
+        def _rate(d: Dict[str, int], action: str) -> float:
+            return float(d[action] / d["total"]) if d["total"] > 0 else 0.0
+
         return np.array(
-            [raise_rate, call_check_rate, fold_rate, net_norm, hand_win_rate],
+            [
+                raise_rate, call_check_rate, fold_rate, net_norm, hand_win_rate,
+                # Pre-flop raise rates by card rank.
+                _rate(self._preflop_counts["J"], "Raise"),
+                _rate(self._preflop_counts["Q"], "Raise"),
+                _rate(self._preflop_counts["K"], "Raise"),
+                # Pre-flop fold rates for J and Q.
+                _rate(self._preflop_counts["J"], "Fold"),
+                _rate(self._preflop_counts["Q"], "Fold"),
+                # Post-flop raise rates by hand strength.
+                _rate(self._postflop_counts["pair"],    "Raise"),
+                _rate(self._postflop_counts["K_nopair"], "Raise"),
+                _rate(self._postflop_counts["Q_nopair"], "Raise"),
+                _rate(self._postflop_counts["J_nopair"], "Raise"),
+                # Post-flop J-high fold rate (aggressive vs reckless separator).
+                _rate(self._postflop_counts["J_nopair"], "Fold"),
+            ],
             dtype=np.float32,
         )
 

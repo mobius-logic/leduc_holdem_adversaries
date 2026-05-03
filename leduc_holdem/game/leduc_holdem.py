@@ -52,7 +52,7 @@ class LeducHoldemGame:
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
         action_callback: Optional[Callable[[str, str, str], None]] = None,
-        personality_action_callback: Optional[Callable[[str], None]] = None,
+        personality_action_callback: Optional[Callable[[str, "GameState"], None]] = None,
     ) -> Tuple[List[int], GameState]:
         """Play one complete hand and return updated stacks plus final state.
 
@@ -67,8 +67,8 @@ class LeducHoldemGame:
                 each personality agent action. Receives (state,
                 preflop_action_count, postflop_action_count).
             personality_action_callback: Optional callable fired
-                immediately after each personality action with the
-                action string. Used for aggregate feature tracking.
+                immediately after each personality action with
+                (action, state). Used for aggregate feature tracking.
 
         Returns:
             Tuple of (updated_stacks, final_game_state).
@@ -114,7 +114,7 @@ class LeducHoldemGame:
                 if obs_callback is not None:
                     obs_callback(state, slot)
                 if personality_action_callback is not None:
-                    personality_action_callback(action)
+                    personality_action_callback(action, state)
                 preflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
@@ -171,7 +171,7 @@ class LeducHoldemGame:
                 if obs_callback is not None:
                     obs_callback(state, slot)
                 if personality_action_callback is not None:
-                    personality_action_callback(action)
+                    personality_action_callback(action, state)
                 postflop_personality_actions += 1
             else:
                 action = random_agent.act(state, legal)
@@ -223,7 +223,7 @@ class LeducHoldemGame:
         random_agent,
         obs_callback: Optional[ObservationCallback] = None,
         tournament_logger=None,
-        personality_action_callback: Optional[Callable[[str], None]] = None,
+        personality_action_callback: Optional[Callable[[str, "GameState"], None]] = None,
     ) -> List[GameState]:
         """Play a complete tournament of N hands.
 
